@@ -6,7 +6,9 @@ import 'package:path_provider/path_provider.dart';
 const String company_logo = 'assets/archidoc.png';
 
 class MainPage extends StatefulWidget {
-  const MainPage({Key? key}) : super(key: key);
+  final String username;
+
+  const MainPage({Key? key, required this.username}) : super(key: key);
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -147,14 +149,20 @@ class _MainPageState extends State<MainPage> {
             child: const Icon(Icons.person, color: Colors.grey),
           ),
           const SizedBox(width: 12),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'John Doe',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                widget.username,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
-              Text('Admin', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const Text(
+                'Admin',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
             ],
           ),
         ],

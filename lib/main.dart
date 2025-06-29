@@ -1,7 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:login/dashboard.dart';
+import 'package:sqflite/sqflite.dart';
+import 'database_helper.dart';
 
-void main() {
+final dbHelper = DatabaseHelper.instance;
+
+Future<void> initializeApp() async {
+  // Initialize database and insert default data
+  final db = await dbHelper.database;
+
+  // Print database info after initialization
+  print('===== DATABASE INITIALIZED =====');
+  print('Database path: ${(await getDatabasesPath())}/archidoc.db');
+
+  // Print users
+  final users = await db.query('users');
+  print('Users:');
+  for (final user in users) {
+    print('  ${user['username']} (ID: ${user['id']})');
+  }
+
+  // Print archives
+  final archives = await db.query('archives');
+  print('Archives:');
+  for (final archive in archives) {
+    print('  ${archive['rangee']}-${archive['colonne']}: ${archive['caisse']}');
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeApp(); // Initialize database before running app
   runApp(const MyApp());
 }
 
@@ -10,6 +40,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     return MaterialApp(
       title: 'ARCHIDOC',
       theme: ThemeData(
@@ -19,7 +53,7 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthentificationWidget(),
-        '/main': (context) => const MainPage(),
+        '/main': (context) => const MainPage(username: ''),
       },
     );
   }
@@ -33,313 +67,185 @@ class AuthentificationWidget extends StatefulWidget {
 }
 
 class _AuthentificationWidgetState extends State<AuthentificationWidget> {
-  final scaffoldKey = GlobalKey<ScaffoldState>();
-  bool passwordVisibility = false;
-  bool checkboxListTileValue = true;
-  final TextEditingController textController1 = TextEditingController();
-  final TextEditingController textController2 = TextEditingController();
+  bool _passwordVisible = false;
+  bool _rememberMe = true;
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  Future<void> _authenticate() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (username.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Veuillez entrer un nom d\'utilisateur et un mot de passe',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final user = await dbHelper.getUser(username);
+
+    if (user == null || user['password'] != password) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nom d\'utilisateur ou mot de passe incorrect'),
+        ),
+      );
+      return;
+    }
+
+    // Print database info after successful login
+    print('\n===== AFTER LOGIN =====');
+    final archives = await dbHelper.getAllArchives();
+    print('Total archives: ${archives.length}');
+    for (final archive in archives) {
+      print(
+        '  ${archive['rangee']}-${archive['colonne']}: ${archive['caisse']}',
+      );
+    }
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => MainPage(username: username)),
+    );
+  }
 
   @override
   void dispose() {
-    textController1.dispose();
-    textController2.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        FocusScope.of(context).unfocus();
-        FocusManager.instance.primaryFocus?.unfocus();
-      },
-      child: Scaffold(
-        key: scaffoldKey,
-        backgroundColor: Colors.white,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          automaticallyImplyLeading: false,
-          actions: [],
-          centerTitle: false,
-          elevation: 0,
-        ),
-        body: SafeArea(
-          top: true,
-          child: Align(
-            alignment: AlignmentDirectional.center,
-            child: Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(maxWidth: 670),
-              decoration: const BoxDecoration(color: Colors.white),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            elevation: 4,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
               child: Column(
-                mainAxisSize: MainAxisSize.max,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsetsDirectional.fromSTEB(
-                        12,
-                        0,
-                        12,
-                        0,
-                      ),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.max,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsetsDirectional.fromSTEB(
-                                12,
-                                32,
-                                0,
-                                8,
-                              ),
-                              child: Text(
-                                'ARCHIDOC',
-                                textAlign: TextAlign.start,
-                                style: TextStyle(
-                                  fontSize: 48,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsetsDirectional.fromSTEB(
-                                12,
-                                0,
-                                0,
-                                12,
-                              ),
-                              child: Text(
-                                'Gestion des archives.',
-                                textAlign: TextAlign.start,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsetsDirectional.fromSTEB(
-                                16,
-                                12,
-                                16,
-                                0,
-                              ),
-                              child: TextFormField(
-                                controller: textController1,
-                                autofocus: false,
-                                obscureText: false,
-                                decoration: InputDecoration(
-                                  labelText: 'Nom d\'utilisation',
-                                  labelStyle: const TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey,
-                                  ),
-                                  enabledBorder: UnderlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: Colors.grey[300]!,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  focusedBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.blue,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  errorBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  focusedErrorBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  contentPadding:
-                                      const EdgeInsetsDirectional.fromSTEB(
-                                        0,
-                                        16,
-                                        16,
-                                        8,
-                                      ),
-                                ),
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsetsDirectional.fromSTEB(
-                                16,
-                                12,
-                                16,
-                                0,
-                              ),
-                              child: TextFormField(
-                                controller: textController2,
-                                autofocus: false,
-                                obscureText: !passwordVisibility,
-                                decoration: InputDecoration(
-                                  labelText: 'Mot de passe',
-                                  labelStyle: const TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey,
-                                  ),
-                                  enabledBorder: UnderlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: Colors.grey[300]!,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  focusedBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.blue,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  errorBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  focusedErrorBorder: UnderlineInputBorder(
-                                    borderSide: const BorderSide(
-                                      color: Colors.red,
-                                      width: 2,
-                                    ),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4.0),
-                                      topRight: Radius.circular(4.0),
-                                    ),
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  contentPadding:
-                                      const EdgeInsetsDirectional.fromSTEB(
-                                        0,
-                                        16,
-                                        16,
-                                        8,
-                                      ),
-                                  suffixIcon: InkWell(
-                                    onTap: () => setState(
-                                      () => passwordVisibility =
-                                          !passwordVisibility,
-                                    ),
-                                    child: Icon(
-                                      passwordVisibility
-                                          ? Icons.visibility_outlined
-                                          : Icons.visibility_off_outlined,
-                                      color: Colors.black,
-                                      size: 24,
-                                    ),
-                                  ),
-                                ),
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                            Theme(
-                              data: ThemeData(
-                                unselectedWidgetColor: Colors.grey,
-                              ),
-                              child: CheckboxListTile(
-                                value: checkboxListTileValue,
-                                onChanged: (newValue) {
-                                  setState(
-                                    () => checkboxListTileValue = newValue!,
-                                  );
-                                },
-                                title: const Text(
-                                  'Se souvenir de ma session',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                tileColor: Colors.white,
-                                activeColor: Colors.black,
-                                checkColor: Colors.white,
-                                dense: false,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                contentPadding:
-                                    const EdgeInsetsDirectional.fromSTEB(
-                                      16,
-                                      0,
-                                      16,
-                                      0,
-                                    ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                            ),
-                          ],
+                  // Logo and title
+                  Center(
+                    child: Column(
+                      children: [
+                        Image.asset(
+                          'assets/archidoc.png',
+                          width: 80,
+                          height: 80,
                         ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'ARCHIDOC',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Gestion des archives',
+                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Username field
+                  TextFormField(
+                    controller: _usernameController,
+                    decoration: InputDecoration(
+                      labelText: 'Nom d\'utilisateur',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      prefixIcon: const Icon(Icons.person_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Password field
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: !_passwordVisible,
+                    decoration: InputDecoration(
+                      labelText: 'Mot de passe',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _passwordVisible
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _passwordVisible = !_passwordVisible;
+                          });
+                        },
                       ),
                     ),
                   ),
-                  if (!(MediaQuery.of(context).viewInsets.bottom > 0))
-                    Padding(
-                      padding: const EdgeInsetsDirectional.fromSTEB(
-                        16,
-                        12,
-                        16,
-                        24,
-                      ),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pushNamed(context, '/main');
+                  const SizedBox(height: 8),
+
+                  // Remember me checkbox
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _rememberMe,
+                        onChanged: (value) {
+                          setState(() {
+                            _rememberMe = value!;
+                          });
                         },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 60),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50),
-                          ),
+                      ),
+                      const Text('Se souvenir de moi'),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {},
+                        child: const Text('Mot de passe oublié?'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Login button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _authenticate,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.lightBlue,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(100),
                         ),
-                        child: const Text(
-                          'Authentifier',
-                          style: TextStyle(fontSize: 18),
-                        ),
+                      ),
+                      child: const Text(
+                        'CONNEXION',
+                        style: TextStyle(fontSize: 16, color: Colors.white),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -347,20 +253,5 @@ class _AuthentificationWidgetState extends State<AuthentificationWidget> {
         ),
       ),
     );
-  }
-}
-
-extension ListExtension<T> on List<T> {
-  List<T> addToStart(T item) => [item, ...this];
-  List<T> addToEnd(T item) => [...this, item];
-  List<T> divide(T separator) {
-    final result = <T>[];
-    for (var i = 0; i < length; i++) {
-      result.add(this[i]);
-      if (i != length - 1) {
-        result.add(separator);
-      }
-    }
-    return result;
   }
 }
