@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   static const _databaseName = "archidoc.db";
-  static const _databaseVersion = 1;
+  static const _databaseVersion = 2; // Incremented version for schema change
 
   // Table names
   static const usersTable = 'users';
@@ -16,7 +16,6 @@ class DatabaseHelper {
   static const columnPassword = 'password';
 
   // Archives table columns
-  static const columnRangee = 'rangee';
   static const columnColonne = 'colonne';
   static const columnCaisse = 'caisse';
 
@@ -40,6 +39,7 @@ class DatabaseHelper {
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade, // Added for database migration
     );
   }
 
@@ -54,11 +54,10 @@ class DatabaseHelper {
       )
     ''');
 
-    // Archives table for storage
+    // Archives table for storage (simplified without rangee)
     await db.execute('''
       CREATE TABLE $archivesTable (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
-        $columnRangee TEXT NOT NULL,
         $columnColonne TEXT NOT NULL,
         $columnCaisse TEXT NOT NULL UNIQUE
       )
@@ -72,15 +71,39 @@ class DatabaseHelper {
 
     // Insert sample archives
     await db.insert(archivesTable, {
-      columnRangee: 'A1',
       columnColonne: 'C1',
       columnCaisse: 'BX001',
     });
     await db.insert(archivesTable, {
-      columnRangee: 'A1',
       columnColonne: 'C2',
       columnCaisse: 'BX002',
     });
+  }
+
+  // Handle database upgrades (migration from version 1 to 2)
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Migrate from version 1 to 2
+      await db.execute('''
+        CREATE TABLE archives_new (
+          $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+          $columnColonne TEXT NOT NULL,
+          $columnCaisse TEXT NOT NULL UNIQUE
+        )
+      ''');
+
+      // Copy data from old table to new table
+      await db.execute('''
+        INSERT INTO archives_new ($columnId, $columnColonne, $columnCaisse)
+        SELECT $columnId, $columnColonne, $columnCaisse FROM $archivesTable
+      ''');
+
+      // Drop old table
+      await db.execute('DROP TABLE $archivesTable');
+
+      // Rename new table
+      await db.execute('ALTER TABLE archives_new RENAME TO $archivesTable');
+    }
   }
 
   // ========== USERS TABLE OPERATIONS ==========
@@ -105,14 +128,9 @@ class DatabaseHelper {
   }
 
   // ========== ARCHIVES TABLE OPERATIONS ==========
-  Future<int> insertArchive(
-    String rangee,
-    String colonne,
-    String caisse,
-  ) async {
+  Future<int> insertArchive(String colonne, String caisse) async {
     Database db = await instance.database;
     return await db.insert(archivesTable, {
-      columnRangee: rangee,
       columnColonne: colonne,
       columnCaisse: caisse,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -127,22 +145,16 @@ class DatabaseHelper {
     Database db = await instance.database;
     return await db.query(
       archivesTable,
-      where:
-          '$columnRangee LIKE ? OR $columnColonne LIKE ? OR $columnCaisse LIKE ?',
-      whereArgs: ['%$query%', '%$query%', '%$query%'],
+      where: '$columnColonne LIKE ? OR $columnCaisse LIKE ?',
+      whereArgs: ['%$query%', '%$query%'],
     );
   }
 
-  Future<int> updateArchive(
-    int id,
-    String rangee,
-    String colonne,
-    String caisse,
-  ) async {
+  Future<int> updateArchive(int id, String colonne, String caisse) async {
     Database db = await instance.database;
     return await db.update(
       archivesTable,
-      {columnRangee: rangee, columnColonne: colonne, columnCaisse: caisse},
+      {columnColonne: colonne, columnCaisse: caisse},
       where: '$columnId = ?',
       whereArgs: [id],
     );

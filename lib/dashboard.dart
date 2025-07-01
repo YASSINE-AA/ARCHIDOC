@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:csv/csv.dart';
+import 'package:login/main.dart';
 import 'package:path_provider/path_provider.dart';
 
 const String company_logo = 'assets/archidoc.png';
@@ -8,7 +9,7 @@ const String company_logo = 'assets/archidoc.png';
 class MainPage extends StatefulWidget {
   final String username;
 
-  const MainPage({Key? key, required this.username}) : super(key: key);
+  const MainPage({super.key, required this.username});
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -20,16 +21,15 @@ class _MainPageState extends State<MainPage> {
   String search = '';
 
   // For scanning new archive location parts:
-  String? scannedRangee;
   String? scannedColonne;
   String? scannedCaisse;
 
   final List<Map<String, String>> archives = [
-    {'rangee': 'A1', 'colonne': 'C1', 'caisse': 'BX001'},
-    {'rangee': 'A1', 'colonne': 'C2', 'caisse': 'BX002'},
-    {'rangee': 'B2', 'colonne': 'C3', 'caisse': 'BX003'},
-    {'rangee': 'B2', 'colonne': 'C4', 'caisse': 'BX004'},
-    {'rangee': 'C3', 'colonne': 'C5', 'caisse': 'BX005'},
+    {'colonne': 'C1', 'caisse': 'BX001'},
+    {'colonne': 'C2', 'caisse': 'BX002'},
+    {'colonne': 'C3', 'caisse': 'BX003'},
+    {'colonne': 'C4', 'caisse': 'BX004'},
+    {'colonne': 'C5', 'caisse': 'BX005'},
   ];
 
   final List<Widget> pages = [];
@@ -38,12 +38,8 @@ class _MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
     pages.addAll([
-      const Center(child: Text('Dashboard Page')),
       _archivesPage(),
-      const Center(child: Text('Reports Page')),
-      const Center(child: Text('Settings Page')),
-      const Center(child: Text('Help Center Page')),
-      const Center(child: Text('Logout Page')),
+      const Center(child: Text("test")),
       _bonsEntreeSortiePage(),
       _localisationPage(),
     ]);
@@ -51,8 +47,8 @@ class _MainPageState extends State<MainPage> {
 
   Future<void> exportToCsv(List<Map<String, String>> data) async {
     List<List<String>> csvData = [
-      ['Rangee', 'Colonne', 'Caisse'],
-      ...data.map((row) => [row['rangee']!, row['colonne']!, row['caisse']!]),
+      ['Colonne', 'Caisse'],
+      ...data.map((row) => [row['colonne']!, row['caisse']!]),
     ];
 
     String csv = const ListToCsvConverter().convert(csvData);
@@ -216,16 +212,11 @@ class _MainPageState extends State<MainPage> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _buildNavItem(Icons.dashboard, 'Dashboard', 0),
                 _buildNavItem(Icons.archive, 'Archives', 1),
-                _buildNavItem(Icons.analytics, 'Reports', 2),
-                _buildNavItem(Icons.settings, 'Settings', 3),
+                _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 2),
+                _buildNavItem(Icons.location_on, 'Localisation', 3),
                 const Divider(height: 1),
-                _buildNavItem(Icons.help_outline, 'Help Center', 4),
-                _buildNavItem(Icons.logout, 'Logout', 5),
-                const Divider(height: 1),
-                _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 6),
-                _buildNavItem(Icons.location_on, 'Localisation', 7),
+                _buildNavItem(Icons.logout, 'Deconnexion', 4),
               ],
             ),
           ),
@@ -250,7 +241,21 @@ class _MainPageState extends State<MainPage> {
         ),
       ),
       selected: selectedIndex == index,
-      onTap: () => setState(() => selectedIndex = index),
+      onTap: () {
+        if (index == 4) {
+          // LOGOUT
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AuthentificationWidget(),
+            ),
+          );
+        } else {
+          setState(() {
+            selectedIndex = index;
+          });
+        }
+      },
     );
   }
 
@@ -260,13 +265,6 @@ class _MainPageState extends State<MainPage> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          _summaryCard(
-            icon: Icons.view_list,
-            title: 'Rangees',
-            value: '12',
-            color: Colors.blue,
-          ),
-          const SizedBox(width: 16),
           _summaryCard(
             icon: Icons.grid_on,
             title: 'Colonnes',
@@ -350,7 +348,7 @@ class _MainPageState extends State<MainPage> {
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Search by rangee, colonne, or caisse',
+              hintText: 'Search by colonne or caisse',
               prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -405,16 +403,6 @@ class _MainPageState extends State<MainPage> {
                 children: [
                   Expanded(
                     flex: 2,
-                    child: Padding(
-                      padding: EdgeInsets.only(left: 16),
-                      child: Text(
-                        'Rangee',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
                     child: Text(
                       'Colonne',
                       style: TextStyle(fontWeight: FontWeight.bold),
@@ -444,7 +432,6 @@ class _MainPageState extends State<MainPage> {
                       ),
                       title: Row(
                         children: [
-                          Expanded(flex: 2, child: Text(entry['rangee'] ?? '')),
                           Expanded(
                             flex: 2,
                             child: Text(entry['colonne'] ?? ''),
@@ -486,7 +473,7 @@ class _MainPageState extends State<MainPage> {
 
   // Bons d'Entree / Sortie page placeholder
   Widget _bonsEntreeSortiePage() {
-    return Center(
+    return const Center(
       child: Text(
         'Page Bons d\'Entrée / Sortie',
         style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
@@ -508,32 +495,21 @@ class _MainPageState extends State<MainPage> {
           const SizedBox(height: 24),
           // Show scanned values or buttons to "scan"
           _barcodeScanStep(
-            label: 'Rangee',
-            scannedValue: scannedRangee,
-            onScan: () => _simulateScan('Rangee'),
-          ),
-          const SizedBox(height: 16),
-          _barcodeScanStep(
             label: 'Colonne',
             scannedValue: scannedColonne,
-            onScan: scannedRangee == null
-                ? null
-                : () => _simulateScan('Colonne'),
+            onScan: () => _simulateScan('Colonne'),
           ),
           const SizedBox(height: 16),
           _barcodeScanStep(
             label: 'Caisse',
             scannedValue: scannedCaisse,
-            onScan: (scannedRangee == null || scannedColonne == null)
+            onScan: scannedColonne == null
                 ? null
                 : () => _simulateScan('Caisse'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed:
-                (scannedRangee != null &&
-                    scannedColonne != null &&
-                    scannedCaisse != null)
+            onPressed: (scannedColonne != null && scannedCaisse != null)
                 ? _addScannedArchive
                 : null,
             child: const Text('Ajouter Archive'),
@@ -551,7 +527,7 @@ class _MainPageState extends State<MainPage> {
                 final entry = archives[index];
                 return ListTile(
                   title: Text(
-                    'Rangee: ${entry['rangee']}, Colonne: ${entry['colonne']}, Caisse: ${entry['caisse']}',
+                    'Colonne: ${entry['colonne']}, Caisse: ${entry['caisse']}',
                   ),
                 );
               },
@@ -605,11 +581,7 @@ class _MainPageState extends State<MainPage> {
                 setState(() {
                   final value = controller.text.trim();
                   if (value.isNotEmpty) {
-                    if (type == 'Rangee') {
-                      scannedRangee = value;
-                      scannedColonne = null;
-                      scannedCaisse = null;
-                    } else if (type == 'Colonne') {
+                    if (type == 'Colonne') {
                       scannedColonne = value;
                       scannedCaisse = null;
                     } else if (type == 'Caisse') {
@@ -628,12 +600,9 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _addScannedArchive() {
-    if (scannedRangee != null &&
-        scannedColonne != null &&
-        scannedCaisse != null) {
+    if (scannedColonne != null && scannedCaisse != null) {
       final exists = archives.any(
         (entry) =>
-            entry['rangee'] == scannedRangee &&
             entry['colonne'] == scannedColonne &&
             entry['caisse'] == scannedCaisse,
       );
@@ -644,12 +613,7 @@ class _MainPageState extends State<MainPage> {
         );
       } else {
         setState(() {
-          archives.add({
-            'rangee': scannedRangee!,
-            'colonne': scannedColonne!,
-            'caisse': scannedCaisse!,
-          });
-          scannedRangee = null;
+          archives.add({'colonne': scannedColonne!, 'caisse': scannedCaisse!});
           scannedColonne = null;
           scannedCaisse = null;
         });
