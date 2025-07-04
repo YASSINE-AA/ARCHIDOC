@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:csv/csv.dart';
 import 'package:login/main.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:login/database_helper.dart';
 
-const String company_logo = 'assets/archidoc.png';
+const String companyLogo = 'assets/archidoc.png';
 
 class MainPage extends StatefulWidget {
   final String username;
-
-  const MainPage({super.key, required this.username});
+  final DatabaseHelper database;
+  const MainPage({super.key, required this.username, required this.database});
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -17,21 +18,12 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   final TextEditingController _searchController = TextEditingController();
-  int selectedIndex = 0;
+  int selectedIndex = 1;
   String search = '';
-
-  // For scanning new archive location parts:
   String? scannedColonne;
   String? scannedCaisse;
-
-  final List<Map<String, String>> archives = [
-    {'colonne': 'C1', 'caisse': 'BX001'},
-    {'colonne': 'C2', 'caisse': 'BX002'},
-    {'colonne': 'C3', 'caisse': 'BX003'},
-    {'colonne': 'C4', 'caisse': 'BX004'},
-    {'colonne': 'C5', 'caisse': 'BX005'},
-  ];
-
+  List<Map<String, dynamic>> archives = [];
+  bool isLoading = true;
   final List<Widget> pages = [];
 
   @override
@@ -43,28 +35,85 @@ class _MainPageState extends State<MainPage> {
       _bonsEntreeSortiePage(),
       _localisationPage(),
     ]);
+
+    // Load archives immediately after widget initialization
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadArchives();
+    });
   }
 
-  Future<void> exportToCsv(List<Map<String, String>> data) async {
-    List<List<String>> csvData = [
-      ['Colonne', 'Caisse'],
-      ...data.map((row) => [row['colonne']!, row['caisse']!]),
-    ];
+  Future<void> _loadArchives() async {
+    if (!mounted) return;
 
-    String csv = const ListToCsvConverter().convert(csvData);
+    setState(() => isLoading = true);
+    try {
+      final results = await widget.database.getAllArchives();
+      if (!mounted) return;
 
-    final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/archives_export.csv';
-    final file = File(path);
-    await file.writeAsString(csv);
-
-    if (context.mounted) {
+      setState(() {
+        archives = results;
+        isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('CSV exported to: $path'),
-          duration: const Duration(seconds: 3),
-        ),
+        SnackBar(content: Text('Échec du chargement des archives: $e')),
       );
+    }
+  }
+
+  Future<void> exportToCsv() async {
+    try {
+      List<List<String>> csvData = [
+        ['Colonne', 'Caisse', 'Date'],
+        ...archives.map(
+          (row) => [
+            row['colonne']?.toString() ?? '',
+            row['caisse']?.toString() ?? '',
+            row['date']?.toString() ?? '',
+          ],
+        ),
+      ];
+
+      String csv = const ListToCsvConverter().convert(csvData);
+      final directory = await getExternalStorageDirectory();
+      if (directory == null)
+        throw Exception('Impossible d\'accéder au stockage');
+
+      final path =
+          '${directory.path}/archives_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      await File(path).writeAsString(csv);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('CSV exporté vers: $path')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Échec de l\'export: $e')));
+      }
+    }
+  }
+
+  Future<void> purgeArchives() async {
+    try {
+      //await widget.database.purgeArchives();
+      await _loadArchives();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Archives purgées avec succès')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Échec de la purge: $e')));
+      }
     }
   }
 
@@ -72,7 +121,8 @@ class _MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     final filteredArchives = archives.where((entry) {
       return entry.values.any(
-        (value) => value.toLowerCase().contains(search.toLowerCase()),
+        (value) =>
+            value.toString().toLowerCase().contains(search.toLowerCase()),
       );
     }).toList();
 
@@ -89,7 +139,6 @@ class _MainPageState extends State<MainPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top row with summary cards and user profile
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,15 +150,15 @@ class _MainPageState extends State<MainPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Show archive header (title + search) only if on Archives page
                   if (selectedIndex == 1) ...[
                     _buildHeader(isWide),
                     const SizedBox(height: 16),
                   ],
 
-                  // Page content or archive data table
                   Expanded(
-                    child: selectedIndex == 1
+                    child: isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : selectedIndex == 1
                         ? _buildDataTableCard(filteredArchives)
                         : pages[selectedIndex],
                   ),
@@ -188,7 +237,7 @@ class _MainPageState extends State<MainPage> {
                   ),
                   child: ClipOval(
                     child: Image.asset(
-                      company_logo,
+                      companyLogo,
                       fit: BoxFit.cover,
                       width: 64,
                       height: 64,
@@ -216,7 +265,7 @@ class _MainPageState extends State<MainPage> {
                 _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 2),
                 _buildNavItem(Icons.location_on, 'Localisation', 3),
                 const Divider(height: 1),
-                _buildNavItem(Icons.logout, 'Deconnexion', 4),
+                _buildNavItem(Icons.logout, 'Déconnexion', 4),
               ],
             ),
           ),
@@ -243,7 +292,6 @@ class _MainPageState extends State<MainPage> {
       selected: selectedIndex == index,
       onTap: () {
         if (index == 4) {
-          // LOGOUT
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -251,9 +299,7 @@ class _MainPageState extends State<MainPage> {
             ),
           );
         } else {
-          setState(() {
-            selectedIndex = index;
-          });
+          setState(() => selectedIndex = index);
         }
       },
     );
@@ -268,14 +314,14 @@ class _MainPageState extends State<MainPage> {
           _summaryCard(
             icon: Icons.grid_on,
             title: 'Colonnes',
-            value: '45',
+            value: archives.length.toString(),
             color: Colors.green,
           ),
           const SizedBox(width: 16),
           _summaryCard(
             icon: Icons.folder,
             title: 'Caisses',
-            value: '108',
+            value: archives.length.toString(),
             color: Colors.orange,
           ),
         ],
@@ -336,7 +382,7 @@ class _MainPageState extends State<MainPage> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         const Text(
-          'Archive Inventory',
+          'Archives',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
@@ -348,7 +394,7 @@ class _MainPageState extends State<MainPage> {
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Search by colonne or caisse',
+              hintText: 'Rechercher par colonne ou caisse',
               prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -364,7 +410,7 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  Widget _buildDataTableCard(List<Map<String, String>> filteredArchives) {
+  Widget _buildDataTableCard(List<Map<String, dynamic>> filteredArchives) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -373,23 +419,38 @@ class _MainPageState extends State<MainPage> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: () => exportToCsv(filteredArchives),
-                icon: const Icon(Icons.download),
-                label: const Text('Export CSV'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: exportToCsv,
+                    icon: const Icon(Icons.download),
+                    label: const Text('Exporter CSV'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: purgeArchives,
+                    icon: const Icon(Icons.delete),
+                    label: const Text('Purger'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -415,38 +476,58 @@ class _MainPageState extends State<MainPage> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'Date',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: ListView.builder(
-                itemCount: filteredArchives.length,
-                itemBuilder: (context, index) {
-                  final entry = filteredArchives[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                      ),
-                      title: Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: Text(entry['colonne'] ?? ''),
+              child: filteredArchives.isEmpty
+                  ? const Center(child: Text('Aucune archive trouvée'))
+                  : ListView.builder(
+                      itemCount: filteredArchives.length,
+                      itemBuilder: (context, index) {
+                        final entry = filteredArchives[index];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    entry['colonne']?.toString() ?? '',
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    entry['caisse']?.toString() ?? '',
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(entry['date']?.toString() ?? ''),
+                                ),
+                              ],
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.more_vert),
+                              onPressed: () => _showArchiveOptions(entry),
+                            ),
                           ),
-                          Expanded(flex: 3, child: Text(entry['caisse'] ?? '')),
-                        ],
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.more_vert),
-                        onPressed: () {},
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
@@ -454,11 +535,113 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  // Archives page widget with full content (search + table)
+  void _showArchiveOptions(Map<String, dynamic> archive) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Modifier'),
+              onTap: () {
+                Navigator.pop(context);
+                _editArchive(archive);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete),
+              title: const Text('Supprimer'),
+              onTap: () {
+                Navigator.pop(context);
+                _deleteArchive(archive);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _editArchive(Map<String, dynamic> archive) async {
+    final colonneController = TextEditingController(
+      text: archive['colonne']?.toString(),
+    );
+    final caisseController = TextEditingController(
+      text: archive['caisse']?.toString(),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Modifier Archive'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: colonneController,
+              decoration: const InputDecoration(labelText: 'Colonne'),
+            ),
+            TextField(
+              controller: caisseController,
+              decoration: const InputDecoration(labelText: 'Caisse'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await widget.database.updateArchive(
+                  archive['id'],
+                  colonneController.text,
+                  caisseController.text,
+                );
+                await _loadArchives();
+                if (context.mounted) Navigator.pop(context);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Échec de la modification: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Sauvegarder'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteArchive(Map<String, dynamic> archive) async {
+    try {
+      await widget.database.deleteArchive(archive['id']);
+      await _loadArchives();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Archive supprimée avec succès')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Échec de la suppression: $e')));
+      }
+    }
+  }
+
   Widget _archivesPage() {
     final filteredArchives = archives.where((entry) {
       return entry.values.any(
-        (value) => value.toLowerCase().contains(search.toLowerCase()),
+        (value) =>
+            value.toString().toLowerCase().contains(search.toLowerCase()),
       );
     }).toList();
 
@@ -471,7 +654,6 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  // Bons d'Entree / Sortie page placeholder
   Widget _bonsEntreeSortiePage() {
     return const Center(
       child: Text(
@@ -481,7 +663,6 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  // Localisation page with barcode scanning simulation and archive adding
   Widget _localisationPage() {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -493,7 +674,6 @@ class _MainPageState extends State<MainPage> {
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
-          // Show scanned values or buttons to "scan"
           _barcodeScanStep(
             label: 'Colonne',
             scannedValue: scannedColonne,
@@ -521,17 +701,19 @@ class _MainPageState extends State<MainPage> {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: ListView.builder(
-              itemCount: archives.length,
-              itemBuilder: (context, index) {
-                final entry = archives[index];
-                return ListTile(
-                  title: Text(
-                    'Colonne: ${entry['colonne']}, Caisse: ${entry['caisse']}',
+            child: archives.isEmpty
+                ? const Center(child: Text('Aucune archive enregistrée'))
+                : ListView.builder(
+                    itemCount: archives.length,
+                    itemBuilder: (context, index) {
+                      final entry = archives[index];
+                      return ListTile(
+                        title: Text(
+                          'Colonne: ${entry['colonne']}, Caisse: ${entry['caisse']}',
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -560,11 +742,10 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _simulateScan(String type) {
-    // This simulates scanning a barcode by just opening a dialog to enter text.
     showDialog(
       context: context,
       builder: (context) {
-        final TextEditingController controller = TextEditingController();
+        final controller = TextEditingController();
         return AlertDialog(
           title: Text('Scanner $type'),
           content: TextField(
@@ -599,27 +780,26 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  void _addScannedArchive() {
-    if (scannedColonne != null && scannedCaisse != null) {
-      final exists = archives.any(
-        (entry) =>
-            entry['colonne'] == scannedColonne &&
-            entry['caisse'] == scannedCaisse,
-      );
+  Future<void> _addScannedArchive() async {
+    if (scannedColonne == null || scannedCaisse == null) return;
 
-      if (exists) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cette archive existe déjà.')),
-        );
-      } else {
-        setState(() {
-          archives.add({'colonne': scannedColonne!, 'caisse': scannedCaisse!});
-          scannedColonne = null;
-          scannedCaisse = null;
-        });
+    try {
+      await widget.database.insertArchive(scannedColonne!, scannedCaisse!);
+      await _loadArchives();
+      setState(() {
+        scannedColonne = null;
+        scannedCaisse = null;
+      });
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Archive ajoutée avec succès!')),
         );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Échec de l\'ajout: $e')));
       }
     }
   }

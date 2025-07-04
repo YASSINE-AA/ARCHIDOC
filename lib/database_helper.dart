@@ -4,33 +4,30 @@ import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   static const _databaseName = "archidoc.db";
-  static const _databaseVersion = 2; // Incremented version for schema change
+  static const _databaseVersion = 4;
 
-  // Table names
   static const usersTable = 'users';
   static const archivesTable = 'archives';
 
-  // Users table columns
   static const columnId = 'id';
   static const columnUsername = 'username';
   static const columnPassword = 'password';
 
-  // Archives table columns
   static const columnColonne = 'colonne';
   static const columnCaisse = 'caisse';
+  static const columnDate = 'date';
 
-  // Singleton pattern
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
 
   static Database? _database;
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  // Initialize the database
   Future<Database> _initDatabase() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, _databaseName);
@@ -39,13 +36,11 @@ class DatabaseHelper {
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade, // Added for database migration
+      onUpgrade: _onUpgrade,
     );
   }
 
-  // Create tables
   Future _onCreate(Database db, int version) async {
-    // Users table for authentication
     await db.execute('''
       CREATE TABLE $usersTable (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,62 +49,56 @@ class DatabaseHelper {
       )
     ''');
 
-    // Archives table for storage (simplified without rangee)
     await db.execute('''
       CREATE TABLE $archivesTable (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnColonne TEXT NOT NULL,
-        $columnCaisse TEXT NOT NULL UNIQUE
+        $columnCaisse TEXT NOT NULL UNIQUE,
+        $columnDate TEXTT NOT NULL UNIQUE
       )
     ''');
 
-    // Insert default admin user
     await db.insert(usersTable, {
       columnUsername: 'admin',
-      columnPassword: 'admin123', // In production, use hashed passwords
+      columnPassword: 'admin123',
     });
 
-    // Insert sample archives
     await db.insert(archivesTable, {
       columnColonne: 'C1',
       columnCaisse: 'BX001',
+      columnDate: DateTime.now().toString(),
     });
+
     await db.insert(archivesTable, {
       columnColonne: 'C2',
       columnCaisse: 'BX002',
+      columnDate: DateTime.now().toString(),
     });
   }
 
-  // Handle database upgrades (migration from version 1 to 2)
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      // Migrate from version 1 to 2
+    if (oldVersion < 4) {
       await db.execute('''
         CREATE TABLE archives_new (
           $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
           $columnColonne TEXT NOT NULL,
-          $columnCaisse TEXT NOT NULL UNIQUE
+          $columnCaisse TEXT NOT NULL UNIQUE,
+          $columnDate TEXT NOT NULL
         )
       ''');
 
-      // Copy data from old table to new table
       await db.execute('''
-        INSERT INTO archives_new ($columnId, $columnColonne, $columnCaisse)
-        SELECT $columnId, $columnColonne, $columnCaisse FROM $archivesTable
+        INSERT INTO archives_new ($columnId, $columnColonne, $columnCaisse, $columnDate)
+        SELECT $columnId, $columnColonne, $columnCaisse, '' FROM $archivesTable
       ''');
 
-      // Drop old table
       await db.execute('DROP TABLE $archivesTable');
-
-      // Rename new table
       await db.execute('ALTER TABLE archives_new RENAME TO $archivesTable');
     }
   }
 
-  // ========== USERS TABLE OPERATIONS ==========
-
   Future<int> createUser(String username, String password) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.insert(usersTable, {
       columnUsername: username,
       columnPassword: password,
@@ -117,7 +106,7 @@ class DatabaseHelper {
   }
 
   Future<Map?> getUser(String username) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     List<Map> results = await db.query(
       usersTable,
       where: '$columnUsername = ?',
@@ -127,22 +116,22 @@ class DatabaseHelper {
     return results.isNotEmpty ? results.first : null;
   }
 
-  // ========== ARCHIVES TABLE OPERATIONS ==========
   Future<int> insertArchive(String colonne, String caisse) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.insert(archivesTable, {
       columnColonne: colonne,
       columnCaisse: caisse,
+      columnDate: DateTime.now().toString(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Map<String, dynamic>>> getAllArchives() async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.query(archivesTable);
   }
 
   Future<List<Map<String, dynamic>>> searchArchives(String query) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.query(
       archivesTable,
       where: '$columnColonne LIKE ? OR $columnCaisse LIKE ?',
@@ -151,17 +140,21 @@ class DatabaseHelper {
   }
 
   Future<int> updateArchive(int id, String colonne, String caisse) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.update(
       archivesTable,
-      {columnColonne: colonne, columnCaisse: caisse},
+      {
+        columnColonne: colonne,
+        columnCaisse: caisse,
+        columnDate: DateTime.now().toString(),
+      },
       where: '$columnId = ?',
       whereArgs: [id],
     );
   }
 
   Future<int> deleteArchive(int id) async {
-    Database db = await instance.database;
+    final db = await instance.database;
     return await db.delete(
       archivesTable,
       where: '$columnId = ?',
@@ -169,9 +162,8 @@ class DatabaseHelper {
     );
   }
 
-  // Close the database connection
   Future close() async {
-    Database db = await instance.database;
+    final db = await instance.database;
     db.close();
   }
 }
