@@ -18,28 +18,17 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   final TextEditingController _searchController = TextEditingController();
-  int selectedIndex = 1;
+  int selectedIndex = 0;
   String search = '';
   String? scannedColonne;
   String? scannedCaisse;
   List<Map<String, dynamic>> archives = [];
   bool isLoading = true;
-  final List<Widget> pages = [];
 
   @override
   void initState() {
     super.initState();
-    pages.addAll([
-      _archivesPage(),
-      const Center(child: Text("test")),
-      _bonsEntreeSortiePage(),
-      _localisationPage(),
-    ]);
-
-    // Load archives immediately after widget initialization
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadArchives();
-    });
+    _loadArchives();
   }
 
   Future<void> _loadArchives() async {
@@ -58,7 +47,7 @@ class _MainPageState extends State<MainPage> {
       if (!mounted) return;
       setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Échec du chargement des archives: $e')),
+        SnackBar(content: Text('Failed to load archives: $e')),
       );
     }
   }
@@ -67,34 +56,30 @@ class _MainPageState extends State<MainPage> {
     try {
       List<List<String>> csvData = [
         ['Colonne', 'Caisse', 'Date'],
-        ...archives.map(
-          (row) => [
-            row['colonne']?.toString() ?? '',
-            row['caisse']?.toString() ?? '',
-            row['date']?.toString() ?? '',
-          ],
-        ),
+        ...archives.map((row) => [
+          row['colonne']?.toString() ?? '',
+          row['caisse']?.toString() ?? '',
+          row['date']?.toString() ?? '',
+        ]),
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
       final directory = await getExternalStorageDirectory();
-      if (directory == null)
-        throw Exception('Impossible d\'accéder au stockage');
+      if (directory == null) throw Exception('Cannot access storage');
 
-      final path =
-          '${directory.path}/archives_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final path = '${directory.path}/archives_export_${DateTime.now().millisecondsSinceEpoch}.csv';
       await File(path).writeAsString(csv);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('CSV exporté vers: $path')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV exported to: $path')),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Échec de l\'export: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
       }
     }
   }
@@ -105,14 +90,14 @@ class _MainPageState extends State<MainPage> {
       await _loadArchives();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Archives purgées avec succès')),
+          const SnackBar(content: Text('Archives purged successfully')),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Échec de la purge: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Purge failed: $e')),
+        );
       }
     }
   }
@@ -121,177 +106,103 @@ class _MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     final filteredArchives = archives.where((entry) {
       return entry.values.any(
-        (value) =>
-            value.toString().toLowerCase().contains(search.toLowerCase()),
+            (value) => value.toString().toLowerCase().contains(search.toLowerCase()),
       );
     }).toList();
 
-    final isWide = MediaQuery.of(context).size.width >= 900;
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
-      body: Row(
-        children: [
-          if (isWide) _buildSidebar(),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: _buildSummaryCards()),
-                      const SizedBox(width: 16),
-                      _buildUserProfile(),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
+      backgroundColor: Colors.white,
+      appBar: isPortrait
+          ? AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: Row(
+          children: [
+            Image.asset(companyLogo, height: 40),
+            const SizedBox(width: 10),
+            const Text('ARCHIDOC', style: TextStyle(color: Colors.black)),
+          ],
+        ),
+        actions: [_buildUserProfile()],
+      )
+          : null,
+      body: isPortrait ? _buildPortraitLayout(filteredArchives) : _buildLandscapeLayout(filteredArchives),
+      bottomNavigationBar: isPortrait ? _buildBottomNavBar() : null,
+      drawer: isPortrait ? null : _buildSidebar(),
+    );
+  }
 
-                  if (selectedIndex == 1) ...[
-                    _buildHeader(isWide),
+  Widget _buildPortraitLayout(List<Map<String, dynamic>> filteredArchives) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            if (selectedIndex == 0) ...[
+              _buildSummaryCards(),
+              const SizedBox(height: 16),
+              _buildHeader(false),
+              const SizedBox(height: 16),
+            ],
+            _buildCurrentPage(filteredArchives),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeLayout(List<Map<String, dynamic>> filteredArchives) {
+    return Row(
+      children: [
+        _buildSidebar(),
+        Expanded(
+          child: Container(
+            color: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: Image.asset(companyLogo, height: 50),
+                  ),
+                  if (selectedIndex == 0) ...[
+                    _buildSummaryCards(),
+                    const SizedBox(height: 16),
+                    _buildHeader(true),
                     const SizedBox(height: 16),
                   ],
-
-                  Expanded(
-                    child: isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : selectedIndex == 1
-                        ? _buildDataTableCard(filteredArchives)
-                        : pages[selectedIndex],
-                  ),
+                  Expanded(child: _buildCurrentPage(filteredArchives)),
                 ],
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUserProfile() {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.person, color: Colors.grey),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.username,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              const Text(
-                'Admin',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSidebar() {
-    return Container(
-      width: 250,
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            color: Colors.blue,
-            child: Column(
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: ClipOval(
-                    child: Image.asset(
-                      companyLogo,
-                      fit: BoxFit.cover,
-                      width: 64,
-                      height: 64,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'ARCHIDOC',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _buildNavItem(Icons.archive, 'Archives', 1),
-                _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 2),
-                _buildNavItem(Icons.location_on, 'Localisation', 3),
-                const Divider(height: 1),
-                _buildNavItem(Icons.logout, 'Déconnexion', 4),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String title, int index) {
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: selectedIndex == index ? Colors.blue : Colors.grey[700],
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: selectedIndex == index ? Colors.blue : Colors.black87,
-          fontWeight: selectedIndex == index
-              ? FontWeight.bold
-              : FontWeight.normal,
         ),
-      ),
-      selected: selectedIndex == index,
-      onTap: () {
-        if (index == 4) {
+      ],
+    );
+  }
+
+  Widget _buildCurrentPage(List<Map<String, dynamic>> filteredArchives) {
+    switch (selectedIndex) {
+      case 0: // Archives
+        return _buildArchivesPage(filteredArchives);
+      case 1: // Bons d'Entrée/Sortie
+        return _bonsEntreeSortiePage();
+      case 2: // Localisation
+        return _localisationPage();
+      default:
+        return const Center(child: Text('Page not found'));
+    }
+  }
+
+  Widget _buildBottomNavBar() {
+    return BottomNavigationBar(
+      backgroundColor: Colors.blue,
+      currentIndex: selectedIndex,
+      onTap: (index) {
+        if (index == 3) { // Logout
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -300,6 +211,99 @@ class _MainPageState extends State<MainPage> {
           );
         } else {
           setState(() => selectedIndex = index);
+        }
+      },
+      items: const [
+        BottomNavigationBarItem(
+          backgroundColor: Colors.blue,
+          icon: Icon(Icons.archive),
+          label: 'Archives',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.inventory),
+          label: 'Bons',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.location_on),
+          label: 'Localisation',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.logout),
+          label: 'Logout',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUserProfile() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: Colors.grey[200],
+            child: Text(widget.username[0], style: TextStyle(color: Colors.black)),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.username, style: TextStyle(color: Colors.black)),
+              const Text('Admin', style: TextStyle(fontSize: 12, color: Colors.black54)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebar() {
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(color: Colors.blue),
+            child: Column(
+              children: [
+                Image.asset(companyLogo, height: 50),
+                const SizedBox(height: 10),
+                Text(
+                  widget.username,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const Text('Admin', style: TextStyle(color: Colors.white70)),
+              ],
+            ),
+          ),
+          _buildNavItem(Icons.archive, 'Archives', 0),
+          _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 1),
+          _buildNavItem(Icons.location_on, 'Localisation', 2),
+          const Divider(),
+          _buildNavItem(Icons.logout, 'Logout', 3),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(IconData icon, String title, int index) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.black),
+      title: Text(title, style: TextStyle(color: Colors.black)),
+      selected: selectedIndex == index,
+      onTap: () {
+        if (index == 3) { // Logout
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AuthentificationWidget(),
+            ),
+          );
+        } else {
+          setState(() => selectedIndex = index);
+          Navigator.pop(context); // Close drawer
         }
       },
     );
@@ -324,6 +328,13 @@ class _MainPageState extends State<MainPage> {
             value: archives.length.toString(),
             color: Colors.orange,
           ),
+          const SizedBox(width: 16),
+          _summaryCard(
+            icon: Icons.history,
+            title: 'Recent',
+            value: '${archives.length ~/ 3}',
+            color: Colors.blue,
+          ),
         ],
       ),
     );
@@ -337,40 +348,17 @@ class _MainPageState extends State<MainPage> {
   }) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: Colors.white,
       child: Container(
-        width: 180,
+        width: 150,
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 14, color: Colors.black54),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(title, style: const TextStyle(fontSize: 14, color: Colors.black)),
+            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
           ],
         ),
       ),
@@ -379,180 +367,120 @@ class _MainPageState extends State<MainPage> {
 
   Widget _buildHeader(bool isWide) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Archives',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
+        const Text('Archives', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+        const Spacer(),
         SizedBox(
-          width: isWide ? 350 : 250,
+          width: isWide ? 300 : MediaQuery.of(context).size.width * 0.5,
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Rechercher par colonne ou caisse',
-              prefixIcon: const Icon(Icons.search),
+              hintText: 'Search...',
+              prefixIcon: const Icon(Icons.search, color: Colors.grey),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey),
               ),
-              filled: true,
-              fillColor: Colors.white,
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              filled: true,
+              fillColor: Colors.grey[100],
             ),
-            onChanged: (value) => setState(() => search = value.toLowerCase()),
+            onChanged: (value) => setState(() => search = value),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDataTableCard(List<Map<String, dynamic>> filteredArchives) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+  Widget _buildArchivesPage(List<Map<String, dynamic>> filteredArchives) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: exportToCsv,
-                    icon: const Icon(Icons.download),
-                    label: const Text('Exporter CSV'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: purgeArchives,
-                    icon: const Icon(Icons.delete),
-                    label: const Text('Purger'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ],
+            ElevatedButton.icon(
+              onPressed: exportToCsv,
+              icon: const Icon(Icons.download),
+              label: const Text('Export'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                side: BorderSide(color: Colors.grey),
               ),
             ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      'Colonne',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      'Caisse',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      'Date',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
+            ElevatedButton.icon(
+              onPressed: purgeArchives,
+              icon: const Icon(Icons.delete),
+              label: const Text('Purge'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.red,
+                side: BorderSide(color: Colors.grey),
               ),
             ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: filteredArchives.isEmpty
-                  ? const Center(child: Text('Aucune archive trouvée'))
-                  : ListView.builder(
-                      itemCount: filteredArchives.length,
-                      itemBuilder: (context, index) {
-                        final entry = filteredArchives[index];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                            ),
-                            title: Row(
-                              children: [
-                                Expanded(
-                                  flex: 2,
-                                  child: Text(
-                                    entry['colonne']?.toString() ?? '',
-                                  ),
-                                ),
-                                Expanded(
-                                  flex: 3,
-                                  child: Text(
-                                    entry['caisse']?.toString() ?? '',
-                                  ),
-                                ),
-                                Expanded(
-                                  flex: 3,
-                                  child: Text(entry['date']?.toString() ?? ''),
-                                ),
-                              ],
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.more_vert),
-                              onPressed: () => _showArchiveOptions(entry),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+            ElevatedButton.icon(
+              onPressed: () => setState(() => selectedIndex = 2),
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.green,
+                side: BorderSide(color: Colors.grey),
+              ),
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        isLoading
+            ? const CircularProgressIndicator()
+            : filteredArchives.isEmpty
+            ? const Text('No archives found', style: TextStyle(color: Colors.black))
+            : _buildArchivesList(filteredArchives),
+      ],
+    );
+  }
+
+  Widget _buildArchivesList(List<Map<String, dynamic>> archives) {
+    return Card(
+      color: Colors.white,
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: archives.length,
+        itemBuilder: (context, index) {
+          final entry = archives[index];
+          return ListTile(
+            title: Text('Colonne: ${entry['colonne']}', style: TextStyle(color: Colors.black)),
+            subtitle: Text('Caisse: ${entry['caisse']}', style: TextStyle(color: Colors.black54)),
+            trailing: IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.black),
+              onPressed: () => _showArchiveOptions(entry),
+            ),
+          );
+        },
       ),
     );
   }
 
   void _showArchiveOptions(Map<String, dynamic> archive) {
     showModalBottomSheet(
+      backgroundColor: Colors.white,
       context: context,
       builder: (context) {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Modifier'),
+              leading: const Icon(Icons.edit, color: Colors.black),
+              title: const Text('Edit', style: TextStyle(color: Colors.black)),
               onTap: () {
                 Navigator.pop(context);
                 _editArchive(archive);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.delete),
-              title: const Text('Supprimer'),
+              leading: const Icon(Icons.delete, color: Colors.black),
+              title: const Text('Delete', style: TextStyle(color: Colors.black)),
               onTap: () {
                 Navigator.pop(context);
                 _deleteArchive(archive);
@@ -565,34 +493,33 @@ class _MainPageState extends State<MainPage> {
   }
 
   Future<void> _editArchive(Map<String, dynamic> archive) async {
-    final colonneController = TextEditingController(
-      text: archive['colonne']?.toString(),
-    );
-    final caisseController = TextEditingController(
-      text: archive['caisse']?.toString(),
-    );
+    final colonneController = TextEditingController(text: archive['colonne']?.toString());
+    final caisseController = TextEditingController(text: archive['caisse']?.toString());
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Modifier Archive'),
+        backgroundColor: Colors.white,
+        title: const Text('Edit Archive', style: TextStyle(color: Colors.black)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: colonneController,
-              decoration: const InputDecoration(labelText: 'Colonne'),
+              decoration: const InputDecoration(labelText: 'Colonne', labelStyle: TextStyle(color: Colors.black)),
+              style: TextStyle(color: Colors.black),
             ),
             TextField(
               controller: caisseController,
-              decoration: const InputDecoration(labelText: 'Caisse'),
+              decoration: const InputDecoration(labelText: 'Caisse', labelStyle: TextStyle(color: Colors.black)),
+              style: TextStyle(color: Colors.black),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
           ),
           TextButton(
             onPressed: () async {
@@ -607,12 +534,12 @@ class _MainPageState extends State<MainPage> {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Échec de la modification: $e')),
+                    SnackBar(content: Text('Edit failed: $e')),
                   );
                 }
               }
             },
-            child: const Text('Sauvegarder'),
+            child: const Text('Save', style: TextStyle(color: Colors.blue)),
           ),
         ],
       ),
@@ -625,119 +552,81 @@ class _MainPageState extends State<MainPage> {
       await _loadArchives();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Archive supprimée avec succès')),
+          const SnackBar(content: Text('Archive deleted')),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Échec de la suppression: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e')),
+        );
       }
     }
   }
 
-  Widget _archivesPage() {
-    final filteredArchives = archives.where((entry) {
-      return entry.values.any(
-        (value) =>
-            value.toString().toLowerCase().contains(search.toLowerCase()),
-      );
-    }).toList();
-
-    return Column(
-      children: [
-        _buildHeader(true),
-        const SizedBox(height: 16),
-        Expanded(child: _buildDataTableCard(filteredArchives)),
-      ],
-    );
-  }
-
   Widget _bonsEntreeSortiePage() {
     return const Center(
-      child: Text(
-        'Page Bons d\'Entrée / Sortie',
-        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-      ),
+      child: Text('Bons d\'Entrée/Sortie Page', style: TextStyle(fontSize: 24, color: Colors.black)),
     );
   }
 
   Widget _localisationPage() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Localisation & Ajout Archive',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 24),
-          _barcodeScanStep(
-            label: 'Colonne',
-            scannedValue: scannedColonne,
-            onScan: () => _simulateScan('Colonne'),
-          ),
-          const SizedBox(height: 16),
-          _barcodeScanStep(
-            label: 'Caisse',
-            scannedValue: scannedCaisse,
-            onScan: scannedColonne == null
-                ? null
-                : () => _simulateScan('Caisse'),
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton(
-            onPressed: (scannedColonne != null && scannedCaisse != null)
-                ? _addScannedArchive
-                : null,
-            child: const Text('Ajouter Archive'),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Archives existantes:',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: archives.isEmpty
-                ? const Center(child: Text('Aucune archive enregistrée'))
-                : ListView.builder(
-                    itemCount: archives.length,
-                    itemBuilder: (context, index) {
-                      final entry = archives[index];
-                      return ListTile(
-                        title: Text(
-                          'Colonne: ${entry['colonne']}, Caisse: ${entry['caisse']}',
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Add New Archive', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+            const SizedBox(height: 20),
+            _buildScanField('Colonne', scannedColonne, () => _simulateScan('Colonne')),
+            const SizedBox(height: 16),
+            _buildScanField('Caisse', scannedCaisse, scannedColonne == null ? null : () => _simulateScan('Caisse')),
+            const SizedBox(height: 24),
+            Center(
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue,
+                  side: BorderSide(color: Colors.grey),
+                ),
+                onPressed: (scannedColonne != null && scannedCaisse != null) ? _addScannedArchive : null,
+                child: const Text('Add Archive'),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('Existing Archives:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+            const SizedBox(height: 8),
+            if (archives.isEmpty)
+              const Center(child: Text('No archives found', style: TextStyle(color: Colors.black)))
+            else
+              Column(
+                children: archives.take(5).map((entry) => ListTile(
+                  title: Text('Colonne: ${entry['colonne']}', style: TextStyle(color: Colors.black)),
+                  subtitle: Text('Caisse: ${entry['caisse']}', style: TextStyle(color: Colors.black54)),
+                )).toList(),
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _barcodeScanStep({
-    required String label,
-    String? scannedValue,
-    VoidCallback? onScan,
-  }) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            '$label: ${scannedValue ?? '-'}',
-            style: const TextStyle(fontSize: 18),
-          ),
+  Widget _buildScanField(String label, String? value, VoidCallback? onScan) {
+    return Card(
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            Expanded(child: Text('$label: ${value ?? 'Not scanned'}', style: TextStyle(color: Colors.black))),
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner, color: Colors.black),
+              onPressed: onScan,
+            ),
+          ],
         ),
-        ElevatedButton(
-          onPressed: onScan,
-          child: Text(scannedValue == null ? 'Scanner $label' : 'Rescanner'),
-        ),
-      ],
+      ),
     );
   }
 
@@ -747,32 +636,34 @@ class _MainPageState extends State<MainPage> {
       builder: (context) {
         final controller = TextEditingController();
         return AlertDialog(
-          title: Text('Scanner $type'),
+          backgroundColor: Colors.white,
+          title: Text('Scan $type', style: TextStyle(color: Colors.black)),
           content: TextField(
             controller: controller,
-            decoration: InputDecoration(hintText: 'Entrez le code $type'),
+            decoration: InputDecoration(
+              hintText: 'Enter $type code',
+              hintStyle: TextStyle(color: Colors.grey),
+            ),
+            style: TextStyle(color: Colors.black),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.black)),
             ),
             TextButton(
               onPressed: () {
                 setState(() {
-                  final value = controller.text.trim();
-                  if (value.isNotEmpty) {
-                    if (type == 'Colonne') {
-                      scannedColonne = value;
-                      scannedCaisse = null;
-                    } else if (type == 'Caisse') {
-                      scannedCaisse = value;
-                    }
+                  if (type == 'Colonne') {
+                    scannedColonne = controller.text.trim();
+                    scannedCaisse = null;
+                  } else if (type == 'Caisse') {
+                    scannedCaisse = controller.text.trim();
                   }
                 });
                 Navigator.pop(context);
               },
-              child: const Text('Valider'),
+              child: const Text('Confirm', style: TextStyle(color: Colors.blue)),
             ),
           ],
         );
@@ -792,14 +683,14 @@ class _MainPageState extends State<MainPage> {
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Archive ajoutée avec succès!')),
+          const SnackBar(content: Text('Archive added successfully!')),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Échec de l\'ajout: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add: $e')),
+        );
       }
     }
   }
