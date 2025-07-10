@@ -40,7 +40,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
     return MaterialApp(
       title: 'ARCHIDOC',
       theme: ThemeData(
@@ -219,10 +218,6 @@ class _AuthentificationWidgetState extends State<AuthentificationWidget> {
                       ),
                       const Text('Se souvenir de moi'),
                       const Spacer(),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text('Mot de passe oublié?'),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
