@@ -4,10 +4,11 @@ import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   static const _databaseName = "archidoc.db";
-  static const _databaseVersion = 4;
+  static const _databaseVersion = 6;
 
   static const usersTable = 'users';
   static const archivesTable = 'archives';
+  static const movementsTable = 'movements';
 
   static const columnId = 'id';
   static const columnUsername = 'username';
@@ -16,6 +17,11 @@ class DatabaseHelper {
   static const columnColonne = 'colonne';
   static const columnCaisse = 'caisse';
   static const columnDate = 'date';
+
+  
+  static const columnType = 'type';
+  static const columnCode = 'code';
+  static const columnMovementDate = 'movement_date';
 
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -54,7 +60,16 @@ class DatabaseHelper {
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnColonne TEXT NOT NULL,
         $columnCaisse TEXT NOT NULL UNIQUE,
-        $columnDate TEXTT NOT NULL UNIQUE
+        $columnDate TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $movementsTable (
+        $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+        $columnType TEXT NOT NULL,
+        $columnCode TEXT NOT NULL,
+        $columnMovementDate TEXT NOT NULL
       )
     ''');
 
@@ -94,6 +109,17 @@ class DatabaseHelper {
 
       await db.execute('DROP TABLE $archivesTable');
       await db.execute('ALTER TABLE archives_new RENAME TO $archivesTable');
+    }
+
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE $movementsTable (
+          $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+          $columnType TEXT NOT NULL,
+          $columnCode TEXT NOT NULL,
+          $columnMovementDate TEXT NOT NULL
+        )
+      ''');
     }
   }
 
@@ -160,6 +186,38 @@ class DatabaseHelper {
       where: '$columnId = ?',
       whereArgs: [id],
     );
+  }
+
+  
+  Future<int> insertMovement(String type, String code) async {
+    final db = await instance.database;
+    return await db.insert(movementsTable, {
+      columnType: type,
+      columnCode: code,
+      columnMovementDate: DateTime.now().toString(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getRecentMovements({int limit = 5}) async {
+    final db = await instance.database;
+    return await db.query(
+      movementsTable,
+      orderBy: '$columnMovementDate DESC',
+      limit: limit,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getAllMovements() async {
+    final db = await instance.database;
+    return await db.query(
+      movementsTable,
+      orderBy: '$columnMovementDate DESC',
+    );
+  }
+
+  Future<int> purgeMovements() async {
+    final db = await instance.database;
+    return await db.delete(movementsTable);
   }
 
   Future close() async {

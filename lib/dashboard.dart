@@ -1,10 +1,19 @@
-import 'dart:io';
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_intent_plus/flag.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mailer/mailer.dart';
+import 'package:mailer/smtp_server/gmail.dart';
+import 'package:mime/mime.dart' show lookupMimeType;
+import 'package:path/path.dart' as path;
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:io' show Platform, File, Directory;
 import 'package:flutter/material.dart';
 import 'package:csv/csv.dart';
 import 'package:intl/intl.dart';
 import 'package:login/main.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:login/database_helper.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const String companyLogo = 'assets/archidoc.png';
 
@@ -26,10 +35,15 @@ class _MainPageState extends State<MainPage> {
   List<Map<String, dynamic>> archives = [];
   bool isLoading = true;
 
+  String? _currentScan;
+  bool _isEntry = true;
+  List<Map<String, dynamic>> _movements = [];
+
   @override
   void initState() {
     super.initState();
     _loadArchives();
+    _loadMovements();
   }
 
   Future<void> _loadArchives() async {
@@ -53,6 +67,59 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
+  Future<void> _loadMovements() async {
+    try {
+      final results = await widget.database.getRecentMovements();
+      if (mounted) {
+        setState(() {
+          _movements = results;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load movements: $e')));
+      }
+    }
+  }
+
+  Future<void> _sendEmailWithAttachment({
+    required String filePath,
+    required String subject,
+    required String body,
+  }) async {
+    try {
+      await dotenv.load();
+      final username = dotenv.env['GMAIL_USER'];
+      final password = dotenv.env['GMAIL_PASSWORD'];
+
+      if (username == null || password == null) {
+        throw Exception('Email credentials not configured');
+      }
+
+      final file = File(filePath);
+      final attachment = FileAttachment(file)
+        ..location = Location.inline
+        ..fileName = path.basename(filePath);
+
+      final message = Message()
+        ..from = Address(username, 'ARCHIDOC GESTION ARCHIVES')
+        ..recipients.add('yassineahmedali02@gmail.com')
+        ..subject = subject
+        ..text = body
+        ..attachments.add(attachment);
+
+      final smtpServer = gmail(username, password);
+
+      final sendReport = await send(message, smtpServer);
+      print('Message sent: ${sendReport.toString()}');
+    } catch (e) {
+      print('Error sending email: $e');
+      rethrow;
+    }
+  }
+
   Future<void> exportToCsv() async {
     try {
       List<List<String>> csvData = [
@@ -67,17 +134,89 @@ class _MainPageState extends State<MainPage> {
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) throw Exception('Cannot access storage');
-
-      final path =
-          '${directory.path}/archives_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final directory = await getApplicationDocumentsDirectory();
+      final fileName =
+          'archives_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final path = '${directory.path}/$fileName';
       await File(path).writeAsString(csv);
+      final downloadsDir = Directory('/storage/emulated/0/Download');
 
+      if (Platform.isAndroid) {
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        await File(path).copy('${downloadsDir.path}/$fileName');
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('CSV exported to: $path'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'SEND EMAIL',
+              onPressed: () => _sendEmailWithAttachment(
+                filePath: '${downloadsDir.path}/$fileName',
+                subject:
+                    'Archives Export - ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+                body:
+                    'Please find attached the exported archives data.\n\n'
+                    'File: $fileName\n'
+                    'Generated on: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('CSV exported to: $path')));
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      }
+    }
+  }
+
+  Future<void> exportMovementsToCsv() async {
+    try {
+      final movements = await widget.database.getAllMovements();
+
+      List<List<String>> csvData = [
+        ['Type', 'Code', 'Date'],
+        ...movements.map(
+          (row) => [
+            row['type']?.toString() ?? '',
+            row['code']?.toString() ?? '',
+            row['movement_date']?.toString() ?? '',
+          ],
+        ),
+      ];
+
+      String csv = const ListToCsvConverter().convert(csvData);
+      final directory = await getApplicationDocumentsDirectory();
+      final path =
+          '${directory.path}/movements_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      await File(path).writeAsString(csv);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Movements CSV exported to: $path'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'SEND EMAIL',
+              onPressed: () => _sendEmailWithAttachment(
+                filePath: path,
+                subject:
+                    'Movements Export - ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+                body:
+                    'Please find attached the exported movements data.\n\n'
+                    'File path: $path\n'
+                    'Generated on: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+              ),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
@@ -90,11 +229,28 @@ class _MainPageState extends State<MainPage> {
 
   Future<void> purgeArchives() async {
     try {
-      //await widget.database.purgeArchives();
       await _loadArchives();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Archives purged successfully')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Purge failed: $e')));
+      }
+    }
+  }
+
+  Future<void> purgeMovements() async {
+    try {
+      await widget.database.purgeMovements();
+      await _loadMovements();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Movements purged successfully')),
         );
       }
     } catch (e) {
@@ -194,11 +350,11 @@ class _MainPageState extends State<MainPage> {
 
   Widget _buildCurrentPage(List<Map<String, dynamic>> filteredArchives) {
     switch (selectedIndex) {
-      case 0: // Archives
+      case 0:
         return _buildArchivesPage(filteredArchives);
-      case 1: // Bons d'Entrée/Sortie
+      case 1:
         return _bonsEntreeSortiePage();
-      case 2: // Localisation
+      case 2:
         return _localisationPage();
       default:
         return const Center(child: Text('Page not found'));
@@ -211,7 +367,6 @@ class _MainPageState extends State<MainPage> {
       currentIndex: selectedIndex,
       onTap: (index) {
         if (index == 3) {
-          // Logout
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -230,19 +385,16 @@ class _MainPageState extends State<MainPage> {
         ),
         BottomNavigationBarItem(
           backgroundColor: Colors.blue,
-
           icon: Icon(Icons.inventory),
           label: 'Bons',
         ),
         BottomNavigationBarItem(
           backgroundColor: Colors.blue,
-
           icon: Icon(Icons.location_on),
           label: 'Localisation',
         ),
         BottomNavigationBarItem(
           backgroundColor: Colors.blue,
-
           icon: Icon(Icons.logout),
           label: 'Logout',
         ),
@@ -316,7 +468,6 @@ class _MainPageState extends State<MainPage> {
       selected: selectedIndex == index,
       onTap: () {
         if (index == 3) {
-          // Logout
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -325,7 +476,7 @@ class _MainPageState extends State<MainPage> {
           );
         } else {
           setState(() => selectedIndex = index);
-          Navigator.pop(context); // Close drawer
+          Navigator.pop(context);
         }
       },
     );
@@ -351,7 +502,12 @@ class _MainPageState extends State<MainPage> {
             color: Colors.orange,
           ),
           const SizedBox(width: 16),
-
+          _summaryCard(
+            icon: Icons.compare_arrows,
+            title: 'Mouvements',
+            value: _movements.length.toString(),
+            color: Colors.blue,
+          ),
         ],
       ),
     );
@@ -624,17 +780,38 @@ class _MainPageState extends State<MainPage> {
   }
 
   Widget _bonsEntreeSortiePage() {
-    // State variables (in a real app, these would be in a StatefulWidget)
-    String? _currentScan;
-    bool _isEntry = true;
-    List<Map<String, dynamic>> _movements = [];
-
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Toggle between entry and exit
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton.icon(
+                onPressed: exportMovementsToCsv,
+                icon: const Icon(Icons.download),
+                label: const Text('Export CSV'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                  side: BorderSide(color: Colors.grey),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: purgeMovements,
+                icon: const Icon(Icons.delete),
+                label: const Text('Purge'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.red,
+                  side: BorderSide(color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
           Row(
             children: [
               Expanded(
@@ -642,8 +819,10 @@ class _MainPageState extends State<MainPage> {
                   label: const Text('Entrée'),
                   selected: _isEntry,
                   onSelected: (selected) {
-                    _isEntry = selected;
-                    _currentScan = null;
+                    setState(() {
+                      _isEntry = selected;
+                      _currentScan = null;
+                    });
                   },
                 ),
               ),
@@ -653,8 +832,10 @@ class _MainPageState extends State<MainPage> {
                   label: const Text('Sortie'),
                   selected: !_isEntry,
                   onSelected: (selected) {
-                    _isEntry = !selected;
-                    _currentScan = null;
+                    setState(() {
+                      _isEntry = !selected;
+                      _currentScan = null;
+                    });
                   },
                 ),
               ),
@@ -662,7 +843,6 @@ class _MainPageState extends State<MainPage> {
           ),
           const SizedBox(height: 20),
 
-          // Scan input field
           Card(
             elevation: 2,
             child: Padding(
@@ -682,27 +862,40 @@ class _MainPageState extends State<MainPage> {
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.qr_code_scanner),
                         onPressed: () {
-                          // Simulate scan
-                          _currentScan = 'ARCH-${DateTime.now().millisecondsSinceEpoch}';
+                          setState(() {
+                            _currentScan =
+                                'ARCH-${DateTime.now().millisecondsSinceEpoch}';
+                          });
                         },
                       ),
                     ),
-                    onChanged: (value) => _currentScan = value,
+                    onChanged: (value) => setState(() => _currentScan = value),
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _currentScan == null || _currentScan!.isEmpty
                         ? null
-                        : () {
-                      // Add to movements list
-                      _movements.insert(0, {
-                        'type': _isEntry ? 'Entrée' : 'Sortie',
-                        'code': _currentScan,
-                        'date': DateTime.now(),
-                      });
-                      _currentScan = null;
-                    },
-                    child: Text(_isEntry ? 'Enregistrer Entrée' : 'Enregistrer Sortie'),
+                        : () async {
+                            try {
+                              await widget.database.insertMovement(
+                                _isEntry ? 'Entrée' : 'Sortie',
+                                _currentScan!,
+                              );
+                              await _loadMovements();
+                              setState(() {
+                                _currentScan = null;
+                              });
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error: $e')),
+                                );
+                              }
+                            }
+                          },
+                    child: Text(
+                      _isEntry ? 'Enregistrer Entrée' : 'Enregistrer Sortie',
+                    ),
                   ),
                 ],
               ),
@@ -710,7 +903,6 @@ class _MainPageState extends State<MainPage> {
           ),
           const SizedBox(height: 24),
 
-          // Recent movements list
           const Text(
             'Derniers Mouvements',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -721,20 +913,25 @@ class _MainPageState extends State<MainPage> {
           else
             Column(
               children: _movements
-                  .take(5)
-                  .map((movement) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: Icon(
-                    movement['type'] == 'Entrée' ? Icons.input : Icons.output,
-                    color: movement['type'] == 'Entrée' ? Colors.green : Colors.red,
-                  ),
-                  title: Text(movement['code']),
-                  subtitle: Text(
-                    '${movement['type']} • ${DateFormat('dd/MM HH:mm').format(movement['date'])}',
-                  ),
-                ),
-              ))
+                  .map(
+                    (movement) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: Icon(
+                          movement['type'] == 'Entrée'
+                              ? Icons.input
+                              : Icons.output,
+                          color: movement['type'] == 'Entrée'
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                        title: Text(movement['code']),
+                        subtitle: Text(
+                          '${movement['type']} • ${DateFormat('dd/MM HH:mm').format(DateTime.parse(movement['movement_date']))}',
+                        ),
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
         ],
@@ -822,6 +1019,7 @@ class _MainPageState extends State<MainPage> {
       ),
     );
   }
+
   Widget _buildScanField(String label, String? value, VoidCallback? onScan) {
     final TextEditingController controller = TextEditingController(text: value);
 
@@ -850,15 +1048,25 @@ class _MainPageState extends State<MainPage> {
                 },
               ),
             ),
-              IconButton(
-                icon: const Icon(Icons.qr_code_scanner, color: Colors.black), onPressed: () {  },
-              ),
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner, color: Colors.black),
+              onPressed: onScan,
+            ),
           ],
         ),
       ),
     );
   }
-  void _simulateScan(String type) {}
+
+  void _simulateScan(String type) {
+    setState(() {
+      if (type == 'Colonne') {
+        scannedColonne = 'C${DateTime.now().second}';
+      } else if (type == 'Caisse') {
+        scannedCaisse = 'BX${DateTime.now().millisecond}';
+      }
+    });
+  }
 
   Future<void> _addScannedArchive() async {
     if (scannedColonne == null || scannedCaisse == null) return;
