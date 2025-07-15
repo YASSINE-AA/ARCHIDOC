@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   static const _databaseName = "archidoc.db";
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 7; // Incremented version
 
   static const usersTable = 'users';
   static const archivesTable = 'archives';
@@ -13,12 +13,12 @@ class DatabaseHelper {
   static const columnId = 'id';
   static const columnUsername = 'username';
   static const columnPassword = 'password';
+  static const columnRole = 'role';
 
   static const columnColonne = 'colonne';
   static const columnCaisse = 'caisse';
   static const columnDate = 'date';
 
-  
   static const columnType = 'type';
   static const columnCode = 'code';
   static const columnMovementDate = 'movement_date';
@@ -51,7 +51,8 @@ class DatabaseHelper {
       CREATE TABLE $usersTable (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnUsername TEXT UNIQUE NOT NULL,
-        $columnPassword TEXT NOT NULL
+        $columnPassword TEXT NOT NULL,
+        $columnRole TEXT NOT NULL DEFAULT 'responsable'
       )
     ''');
 
@@ -73,11 +74,21 @@ class DatabaseHelper {
       )
     ''');
 
+    // Create admin user
     await db.insert(usersTable, {
       columnUsername: 'admin',
       columnPassword: 'admin123',
+      columnRole: 'admin',
     });
 
+    // Create sample responsable user
+    await db.insert(usersTable, {
+      columnUsername: 'resp',
+      columnPassword: 'resp123',
+      columnRole: 'responsable',
+    });
+
+    // Sample archives
     await db.insert(archivesTable, {
       columnColonne: 'C1',
       columnCaisse: 'BX001',
@@ -121,25 +132,40 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 7) {
+      await db.execute('''
+        ALTER TABLE $usersTable ADD COLUMN $columnRole TEXT NOT NULL DEFAULT 'responsable'
+      ''');
+      await db.execute('''
+        UPDATE $usersTable SET $columnRole = 'admin' WHERE $columnUsername = 'admin'
+      ''');
+    }
   }
 
-  Future<int> createUser(String username, String password) async {
+  Future<int> createUser(String username, String password, String role) async {
     final db = await instance.database;
     return await db.insert(usersTable, {
       columnUsername: username,
       columnPassword: password,
+      columnRole: role,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<Map?> getUser(String username) async {
+  Future<Map<String, dynamic>?> getUser(String username) async {
     final db = await instance.database;
-    List<Map> results = await db.query(
+    List<Map<String, dynamic>> results = await db.query(
       usersTable,
       where: '$columnUsername = ?',
       whereArgs: [username],
       limit: 1,
     );
     return results.isNotEmpty ? results.first : null;
+  }
+
+  Future<String?> getUserRole(String username) async {
+    final user = await getUser(username);
+    return user?[columnRole] as String?;
   }
 
   Future<int> insertArchive(String colonne, String caisse) async {
@@ -188,7 +214,6 @@ class DatabaseHelper {
     );
   }
 
-  
   Future<int> insertMovement(String type, String code) async {
     final db = await instance.database;
     return await db.insert(movementsTable, {
@@ -213,6 +238,11 @@ class DatabaseHelper {
       movementsTable,
       orderBy: '$columnMovementDate DESC',
     );
+  }
+
+  Future<int> purgeArchives() async {
+    final db = await instance.database;
+    return await db.delete(archivesTable);
   }
 
   Future<int> purgeMovements() async {

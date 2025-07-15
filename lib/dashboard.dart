@@ -19,8 +19,9 @@ const String companyLogo = 'assets/archidoc.png';
 
 class MainPage extends StatefulWidget {
   final String username;
+  final String role;
   final DatabaseHelper database;
-  const MainPage({super.key, required this.username, required this.database});
+  const MainPage({super.key, required this.username, required this.role, required this.database});
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -410,7 +411,7 @@ class _MainPageState extends State<MainPage> {
           CircleAvatar(
             backgroundColor: Colors.grey[200],
             child: Text(
-              widget.username[0],
+              widget.username[0].toUpperCase(),
               style: TextStyle(color: Colors.black),
             ),
           ),
@@ -419,9 +420,9 @@ class _MainPageState extends State<MainPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.username, style: TextStyle(color: Colors.black)),
-              const Text(
-                'Admin',
+              Text(widget.role, style: TextStyle(color: Colors.black)),
+               Text(
+                widget.username,
                 style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
             ],
@@ -598,7 +599,8 @@ class _MainPageState extends State<MainPage> {
                 side: BorderSide(color: Colors.grey),
               ),
             ),
-            ElevatedButton.icon(
+            if(widget.role == "admin")
+              ElevatedButton.icon(
               onPressed: purgeArchives,
               icon: const Icon(Icons.delete),
               label: const Text('Purge'),
@@ -677,6 +679,7 @@ class _MainPageState extends State<MainPage> {
                 _editArchive(archive);
               },
             ),
+            if(widget.role == "admin")
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.black),
               title: const Text(
@@ -778,7 +781,6 @@ class _MainPageState extends State<MainPage> {
       }
     }
   }
-
   Widget _bonsEntreeSortiePage() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -795,19 +797,20 @@ class _MainPageState extends State<MainPage> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black,
-                  side: BorderSide(color: Colors.grey),
+                  side: const BorderSide(color: Colors.grey),
                 ),
               ),
-              ElevatedButton.icon(
-                onPressed: purgeMovements,
-                icon: const Icon(Icons.delete),
-                label: const Text('Purge'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.red,
-                  side: BorderSide(color: Colors.grey),
+              if (widget.role == "Admin")
+                ElevatedButton.icon(
+                  onPressed: purgeMovements,
+                  icon: const Icon(Icons.delete),
+                  label: const Text('Purge'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.grey),
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -856,43 +859,38 @@ class _MainPageState extends State<MainPage> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: TextEditingController(text: _currentScan),
-                    decoration: InputDecoration(
+                    onChanged: (value) {
+                      setState(() {
+                        _currentScan = value;
+                      });
+                    },
+                    decoration: const InputDecoration(
                       hintText: 'Code archive',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.qr_code_scanner),
-                        onPressed: () {
-                          setState(() {
-                            _currentScan =
-                                'ARCH-${DateTime.now().millisecondsSinceEpoch}';
-                          });
-                        },
-                      ),
+                      border: OutlineInputBorder(),
                     ),
-                    onChanged: (value) => setState(() => _currentScan = value),
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _currentScan == null || _currentScan!.isEmpty
                         ? null
                         : () async {
-                            try {
-                              await widget.database.insertMovement(
-                                _isEntry ? 'Entrée' : 'Sortie',
-                                _currentScan!,
-                              );
-                              await _loadMovements();
-                              setState(() {
-                                _currentScan = null;
-                              });
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: $e')),
-                                );
-                              }
-                            }
-                          },
+                      try {
+                        await widget.database.insertMovement(
+                          _isEntry ? 'Entrée' : 'Sortie',
+                          _currentScan!,
+                        );
+                        await _loadMovements();
+                        setState(() {
+                          _currentScan = null;
+                        });
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                      }
+                    },
                     child: Text(
                       _isEntry ? 'Enregistrer Entrée' : 'Enregistrer Sortie',
                     ),
@@ -915,30 +913,29 @@ class _MainPageState extends State<MainPage> {
               children: _movements
                   .map(
                     (movement) => Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: Icon(
-                          movement['type'] == 'Entrée'
-                              ? Icons.input
-                              : Icons.output,
-                          color: movement['type'] == 'Entrée'
-                              ? Colors.green
-                              : Colors.red,
-                        ),
-                        title: Text(movement['code']),
-                        subtitle: Text(
-                          '${movement['type']} • ${DateFormat('dd/MM HH:mm').format(DateTime.parse(movement['movement_date']))}',
-                        ),
-                      ),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Icon(
+                      movement['type'] == 'Entrée'
+                          ? Icons.input
+                          : Icons.output,
+                      color: movement['type'] == 'Entrée'
+                          ? Colors.green
+                          : Colors.red,
                     ),
-                  )
+                    title: Text(movement['code']),
+                    subtitle: Text(
+                      '${movement['type']} • ${DateFormat('dd/MM HH:mm').format(DateTime.parse(movement['movement_date']))}',
+                    ),
+                  ),
+                ),
+              )
                   .toList(),
             ),
         ],
       ),
     );
   }
-
   Widget _localisationPage() {
     return SingleChildScrollView(
       child: Padding(
@@ -1048,10 +1045,7 @@ class _MainPageState extends State<MainPage> {
                 },
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.qr_code_scanner, color: Colors.black),
-              onPressed: onScan,
-            ),
+
           ],
         ),
       ),

@@ -49,7 +49,7 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthentificationWidget(),
-        '/main': (context) => MainPage(username: '', database: dbHelper),
+        '/main': (context) => MainPage(username: '', role: '', database: dbHelper),
       },
     );
   }
@@ -106,7 +106,7 @@ class _AuthentificationWidgetState extends State<AuthentificationWidget> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => MainPage(username: username, database: dbHelper),
+        builder: (context) => MainPage(username: user['username'], role: user['role'], database: dbHelper),
       ),
     );
   }
