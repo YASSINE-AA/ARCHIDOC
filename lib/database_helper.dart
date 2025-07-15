@@ -4,11 +4,11 @@ import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   static const _databaseName = "archidoc.db";
-  static const _databaseVersion = 7; // Incremented version
+  static const _databaseVersion = 9;
 
   static const usersTable = 'users';
   static const archivesTable = 'archives';
-  static const movementsTable = 'movements';
+  static const bonsTable = 'bons';
 
   static const columnId = 'id';
   static const columnUsername = 'username';
@@ -21,7 +21,9 @@ class DatabaseHelper {
 
   static const columnType = 'type';
   static const columnCode = 'code';
-  static const columnMovementDate = 'movement_date';
+  static const columnBonDate = 'bon_date';
+  static const columnBonNumber = 'bon_number';
+  static const columnBonYear = 'bon_year';
 
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -66,29 +68,28 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE $movementsTable (
+      CREATE TABLE $bonsTable (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnType TEXT NOT NULL,
         $columnCode TEXT NOT NULL,
-        $columnMovementDate TEXT NOT NULL
+        $columnBonDate TEXT NOT NULL,
+        $columnBonNumber TEXT NOT NULL,
+        $columnBonYear TEXT NOT NULL
       )
     ''');
 
-    // Create admin user
     await db.insert(usersTable, {
       columnUsername: 'admin',
       columnPassword: 'admin123',
       columnRole: 'admin',
     });
 
-    // Create sample responsable user
     await db.insert(usersTable, {
       columnUsername: 'resp',
       columnPassword: 'resp123',
       columnRole: 'responsable',
     });
 
-    // Sample archives
     await db.insert(archivesTable, {
       columnColonne: 'C1',
       columnCaisse: 'BX001',
@@ -103,7 +104,7 @@ class DatabaseHelper {
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 4) {
+    if (oldVersion < 5) {
       await db.execute('''
         CREATE TABLE archives_new (
           $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,17 +123,6 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE archives_new RENAME TO $archivesTable');
     }
 
-    if (oldVersion < 5) {
-      await db.execute('''
-        CREATE TABLE $movementsTable (
-          $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
-          $columnType TEXT NOT NULL,
-          $columnCode TEXT NOT NULL,
-          $columnMovementDate TEXT NOT NULL
-        )
-      ''');
-    }
-
     if (oldVersion < 7) {
       await db.execute('''
         ALTER TABLE $usersTable ADD COLUMN $columnRole TEXT NOT NULL DEFAULT 'responsable'
@@ -140,6 +130,25 @@ class DatabaseHelper {
       await db.execute('''
         UPDATE $usersTable SET $columnRole = 'admin' WHERE $columnUsername = 'admin'
       ''');
+    }
+
+    if (oldVersion < 9) {
+      await db.execute('''
+        CREATE TABLE $bonsTable (
+          $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+          $columnType TEXT NOT NULL,
+          $columnCode TEXT NOT NULL,
+          $columnBonDate TEXT NOT NULL,
+          $columnBonNumber TEXT NOT NULL,
+          $columnBonYear TEXT NOT NULL
+        )
+      ''');
+
+      try {
+        await db.execute('DROP TABLE movements');
+      } catch (e) {
+        print("No movements table to drop");
+      }
     }
   }
 
@@ -214,42 +223,102 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> insertMovement(String type, String code) async {
+  Future<int> insertBon(String type, String code, String bonNumber, String bonYear) async {
     final db = await instance.database;
-    return await db.insert(movementsTable, {
+    return await db.insert(bonsTable, {
       columnType: type,
       columnCode: code,
-      columnMovementDate: DateTime.now().toString(),
+      columnBonDate: DateTime.now().toString(),
+      columnBonNumber: bonNumber,
+      columnBonYear: bonYear,
     });
   }
-
-  Future<List<Map<String, dynamic>>> getRecentMovements({int limit = 5}) async {
+  Future<List<Map<String, dynamic>>> getBonsByNumber(String bonNumber, String bonYear) async {
+    final db = await database;
+    return await db.query(
+      'bons',
+      where: 'bon_number = ? AND bon_year = ?',
+      whereArgs: [bonNumber, bonYear],
+    );
+  }
+  Future<List<Map<String, dynamic>>> getRecentBons({int limit = 5}) async {
     final db = await instance.database;
     return await db.query(
-      movementsTable,
-      orderBy: '$columnMovementDate DESC',
+      bonsTable,
+      orderBy: '$columnBonDate DESC',
       limit: limit,
     );
   }
 
-  Future<List<Map<String, dynamic>>> getAllMovements() async {
+  Future<List<Map<String, dynamic>>> getAllBons() async {
     final db = await instance.database;
     return await db.query(
-      movementsTable,
-      orderBy: '$columnMovementDate DESC',
+      bonsTable,
+      orderBy: '$columnBonDate DESC',
     );
   }
+  Future<String> generateNextBonNumber(String type) async {
+    final db = await instance.database;
+    final year = DateTime.now().year.toString();
 
+    final result = await db.rawQuery('''
+    SELECT MAX($columnBonNumber) as max_number 
+    FROM $bonsTable 
+    WHERE $columnType = ? AND $columnBonYear = ?
+  ''', [type, year]);
+
+    int nextNumber = 1;
+    if (result.isNotEmpty && result.first['max_number'] != null) {
+      final maxNumber = result.first['max_number'] as String;
+      if (maxNumber.isNotEmpty) {
+        final numberPart = maxNumber.replaceAll(RegExp(r'[^0-9]'), '');
+        nextNumber = int.parse(numberPart) + 1;
+      }
+    }
+
+    return nextNumber.toString().padLeft(4, '0');
+  }
   Future<int> purgeArchives() async {
     final db = await instance.database;
     return await db.delete(archivesTable);
   }
 
-  Future<int> purgeMovements() async {
+  Future<int> purgeBons() async {
     final db = await instance.database;
-    return await db.delete(movementsTable);
+    return await db.delete(bonsTable);
+  }
+  Future<void> deleteBonItem(int id) async {
+    final db = await database;
+    await db.delete(
+      'bons',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+  Future<void> updateBon(int id, String type, String code, String bonNumber, String bonYear) async {
+    final db = await database;
+    await db.update(
+      'bons',
+      {
+        'type': type,
+        'code': code,
+        'bon_number': bonNumber,
+        'bon_year': bonYear,
+        'bon_date': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
+  Future<void> deleteBon(int id) async {
+    final db = await database;
+    await db.delete(
+      'bons',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
   Future close() async {
     final db = await instance.database;
     db.close();
