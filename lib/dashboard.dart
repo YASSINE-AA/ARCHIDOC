@@ -482,11 +482,13 @@ class _MainPageState extends State<MainPage> {
                           const SizedBox(height: 10),
                           TextField(
                             controller: _bonCodeController,
+                            keyboardType: TextInputType.none, // Prevent on-screen keyboard
+                            enableInteractiveSelection: true, // Allow pasting
+                            autofocus: true,
                             decoration: const InputDecoration(
                               hintText: 'Code archive',
                               border: OutlineInputBorder(),
                             ),
-                            autofocus: true,
                             onChanged: (value) => _handleBonCodeChange(),
                           ),
                         ],
@@ -1189,6 +1191,9 @@ class _MainPageState extends State<MainPage> {
               child: TextField(
                 readOnly: false,
                 controller: controller,
+                keyboardType: TextInputType.none, // Prevent on-screen keyboard
+                enableInteractiveSelection: true, // Allow pasting
+                autofocus: true,
                 decoration: InputDecoration(
                   prefixIcon: label == "Colonne" ? const Icon(Icons.view_column) : const Icon(Icons.folder),
                   border: const OutlineInputBorder(),
