@@ -847,9 +847,11 @@ class _MainPageState extends State<MainPage> {
           const SizedBox(height: 20),
 
           Card(
-            elevation: 2,
+            color: Colors.white,
+            elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(12.0),
+
               child: Column(
                 children: [
                   Text(
@@ -858,6 +860,7 @@ class _MainPageState extends State<MainPage> {
                   ),
                   const SizedBox(height: 10),
                   TextField(
+                    readOnly: true,
                     controller: TextEditingController(text: _currentScan),
                     onChanged: (value) {
                       setState(() {
@@ -910,11 +913,14 @@ class _MainPageState extends State<MainPage> {
             const Center(child: Text('Aucun mouvement enregistré'))
           else
             Column(
+
               children: _movements
                   .map(
                     (movement) => Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
+
+
                     leading: Icon(
                       movement['type'] == 'Entrée'
                           ? Icons.input
@@ -1028,6 +1034,7 @@ class _MainPageState extends State<MainPage> {
           children: [
             Expanded(
               child: TextField(
+                readOnly: true,
                 controller: controller,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
