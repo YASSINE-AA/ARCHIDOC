@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mailer/mailer.dart';
@@ -39,9 +40,9 @@ class _MainPageState extends State<MainPage> {
   bool _isEntry = true;
   List<Map<String, dynamic>> _bons = [];
   String? _currentBonNumber;
-  String? _selectedBonNumber; // For dropdown selection
+  String? _selectedBonId;
 
-  // Pagination variables
+// Pagination variables
   int _archivesCurrentPage = 0;
   int _bonsCurrentPage = 0;
   final int _rowsPerPage = 10;
@@ -65,6 +66,7 @@ class _MainPageState extends State<MainPage> {
         archives = results;
         isLoading = false;
       });
+      print('Loaded archives: $archives');
     } catch (e) {
       if (!mounted) return;
       setState(() => isLoading = false);
@@ -83,19 +85,16 @@ class _MainPageState extends State<MainPage> {
       setState(() {
         _bons = results;
         _loadingBons = false;
-        // Validate _selectedBonNumber
-        if (_selectedBonNumber != null) {
-          final validBonNumbers = _bons
-              .map((bon) => '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}')
-              .toSet();
-          if (!validBonNumbers.contains(_selectedBonNumber)) {
-            _selectedBonNumber = null;
+        if (_selectedBonId != null) {
+          final validBonIds = _bons.map((bon) => bon['id'].toString()).toSet();
+          if (!validBonIds.contains(_selectedBonId)) {
+            _selectedBonId = null;
             _currentBonNumber = null;
             ajoutBonActif = false;
           }
         }
       });
-      print('Loaded bons: ${_bons.map((bon) => '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}').toList()}');
+      print('Loaded bons: $results');
     } catch (e) {
       if (!mounted) return;
       setState(() => _loadingBons = false);
@@ -132,11 +131,8 @@ class _MainPageState extends State<MainPage> {
         ..attachments.add(attachment);
 
       final smtpServer = gmail(username, password);
-
       final sendReport = await send(message, smtpServer);
-      print('Message sent: ${sendReport.toString()}');
     } catch (e) {
-      print('Error sending email: $e');
       rethrow;
     }
   }
@@ -271,14 +267,19 @@ class _MainPageState extends State<MainPage> {
       final year = DateTime.now().year.toString();
       final fullBonNumber = '${_isEntry ? 'BET' : 'BST'}$bonNumber/$year';
 
-
+      final newBonId = await widget.database.insertBon(
+        _isEntry ? 'Entrée' : 'Sortie',
+        '',
+        bonNumber,
+        year,
+      );
 
       await _loadBons();
 
       if (mounted) {
         setState(() {
           _currentBonNumber = fullBonNumber;
-          _selectedBonNumber = fullBonNumber; // Ensure dropdown selects the new bon
+          _selectedBonId = newBonId.toString();
           ajoutBonActif = true;
           _loadingBons = false;
         });
@@ -296,9 +297,9 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
-  Future<void> _handleBonCodeChange() async {
-    final code = _bonCodeController.text.trim();
-    if (code.isEmpty || _currentBonNumber == null) return;
+  Future<void> _handleBonCodeChange(String value) async {
+    final code = value.trim();
+    if (code.isEmpty || _currentBonNumber == null || _selectedBonId == null) return;
 
     try {
       final parts = _currentBonNumber!.split('/');
@@ -319,17 +320,21 @@ class _MainPageState extends State<MainPage> {
           _currentScan = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ajouté au bon $_currentBonNumber')),
+          SnackBar(content: Text('Caisse $code ajoutée au bon $_currentBonNumber')),
         );
       }
+      print('Added caisse $code to bon $_currentBonNumber');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur lors de l\'ajout: $e')),
         );
       }
+      print('Error adding caisse: $e');
     }
-  }Widget _bonsEntreeSortiePage() {
+  }
+
+  Widget _bonsEntreeSortiePage() {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -352,7 +357,7 @@ class _MainPageState extends State<MainPage> {
                 ElevatedButton.icon(
                   onPressed: _startNewBon,
                   icon: const Icon(Icons.add),
-                  label: const Text('Bon'),
+                  label: const Text('Nouveau Bon'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.green,
@@ -372,48 +377,6 @@ class _MainPageState extends State<MainPage> {
                   ),
               ],
             ),
-            const SizedBox(height: 16),
-            if (_bons.isNotEmpty)
-              DropdownButton<String>(
-                value: _selectedBonNumber != null &&
-                    _bons.any((bon) =>
-                    '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}' ==
-                        _selectedBonNumber)
-                    ? _selectedBonNumber
-                    : null,
-                hint: const Text('Select a Bon'),
-                isExpanded: true,
-                items: _bons
-                    .map((bon) =>
-                '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}')
-                    .toSet()
-                    .map((bonNumber) => DropdownMenuItem<String>(
-                  value: bonNumber,
-                  child: Text(bonNumber),
-                ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedBonNumber = value;
-                    _currentBonNumber = value;
-                    ajoutBonActif = value != null;
-                    _bonsCurrentPage = 0; // Reset pagination on bon change
-                    if (value != null) {
-                      final selectedBon = _bons.firstWhere(
-                            (bon) =>
-                        '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}' ==
-                            value,
-                        orElse: () => {'type': 'Entrée'},
-                      );
-                      _isEntry = selectedBon['type'] == 'Entrée';
-                    } else {
-                      _currentBonNumber = null;
-                      ajoutBonActif = false;
-                    }
-                  });
-                  print('Selected bon: $_selectedBonNumber');
-                },
-              ),
             const SizedBox(height: 16),
             if (_currentBonNumber != null)
               Card(
@@ -442,6 +405,7 @@ class _MainPageState extends State<MainPage> {
                         child: ChoiceChip(
                           label: const Text('Entrée'),
                           selected: _isEntry,
+                          selectedColor: Colors.green[100],
                           onSelected: (selected) {
                             setState(() {
                               _isEntry = selected;
@@ -456,6 +420,7 @@ class _MainPageState extends State<MainPage> {
                         child: ChoiceChip(
                           label: const Text('Sortie'),
                           selected: !_isEntry,
+                          selectedColor: Colors.red[100],
                           onSelected: (selected) {
                             setState(() {
                               _isEntry = !selected;
@@ -470,26 +435,29 @@ class _MainPageState extends State<MainPage> {
                   const SizedBox(height: 20),
                   Card(
                     color: Colors.white,
-                    elevation: 1,
+                    elevation: 2,
                     child: Padding(
-                      padding: const EdgeInsets.all(12.0),
+                      padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
                           Text(
                             _isEntry ? 'Entrée d\'Archive' : 'Sortie d\'Archive',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           TextField(
                             controller: _bonCodeController,
-                            keyboardType: TextInputType.none, // Prevent on-screen keyboard
-                            enableInteractiveSelection: true, // Allow pasting
+                            keyboardType: TextInputType.text,
+                            enableInteractiveSelection: false,
                             autofocus: true,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Code archive',
-                              border: OutlineInputBorder(),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              prefixIcon: const Icon(Icons.qr_code),
                             ),
-                            onChanged: (value) => _handleBonCodeChange(),
+                            onChanged: _handleBonCodeChange,
                           ),
                         ],
                       ),
@@ -498,65 +466,23 @@ class _MainPageState extends State<MainPage> {
                 ],
               ),
             const SizedBox(height: 24),
-            const Text(
-              'Caisses du Bon Sélectionné',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Center(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Bons enregistrés',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBonsDataTable(),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            _buildBonsDataTable(),
           ],
         ),
       ),
     );
-  }
-  Future<void> _addToBon() async {
-    if (_currentScan == null || _currentScan!.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez entrer un code archive')),
-        );
-      }
-      return;
-    }
-    if (_currentBonNumber == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun bon sélectionné')),
-        );
-      }
-      return;
-    }
-
-    try {
-      final parts = _currentBonNumber!.split('/');
-      final bonNumber = parts[0].substring(3);
-      final bonYear = parts[1];
-
-      await widget.database.insertBon(
-        _isEntry ? 'Entrée' : 'Sortie',
-        _currentScan!,
-        bonNumber,
-        bonYear,
-      );
-
-      await _loadBons();
-      if (mounted) {
-        setState(() {
-          _currentScan = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ajouté au bon $_currentBonNumber')),
-        );
-        print('Added to bon: $_currentBonNumber, code: $_currentScan');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de l\'ajout: $e')),
-        );
-        print('Error adding to bon: $e');
-      }
-    }
   }
 
   Future<List<Map<String, dynamic>>> _getCaissesForBon(String bonNumber) async {
@@ -566,12 +492,11 @@ class _MainPageState extends State<MainPage> {
         print('Invalid bon number format: $bonNumber');
         return [];
       }
-      final bonNumberOnly = parts[0].substring(3); // Remove BET/BST prefix
+      final bonNumberOnly = parts[0].substring(3);
       final bonYear = parts[1];
 
       final bons = await widget.database.getBonsByNumber(bonNumberOnly, bonYear);
-      print('Bons retrieved for $bonNumber: ${bons.map((b) => {'id': b['id'], 'code': b['code'], 'type': b['type']}).toList()}');
-
+      print('Bons fetched for $bonNumber: $bons');
       final caisseCodes = bons
           .map((bon) => bon['code']?.toString())
           .where((code) => code != null && code.isNotEmpty)
@@ -579,210 +504,225 @@ class _MainPageState extends State<MainPage> {
           .toList();
       print('Caisse codes for $bonNumber: $caisseCodes');
 
-      final caisses = archives
-          .where((archive) => caisseCodes.contains(archive['caisse']?.toString()))
-          .toList();
-      print('Filtered caisses for $bonNumber: ${caisses.map((c) => {'caisse': c['caisse'], 'colonne': c['colonne']}).toList()}');
-
+      final caisses = <Map<String, dynamic>>[];
+      for (var code in caisseCodes) {
+        final matchingArchive = archives.firstWhere(
+              (archive) => archive['caisse']?.toString() == code,
+          orElse: () => {'colonne': 'N/A', 'caisse': code},
+        );
+        caisses.add(matchingArchive);
+      }
+      print('Matching caisses for $bonNumber: $caisses');
       return caisses;
     } catch (e) {
-      print('Error fetching caisses for bon $bonNumber: $e');
+      if (mounted) {
+        print('Error fetching caisses for bon $bonNumber: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors du chargement des caisses: $e')),
+        );
+      }
       return [];
     }
   }
+
   Future<void> _editBon(Map<String, dynamic> bon) async {
     final typeController = TextEditingController(text: bon['type']);
     bool isEntry = bon['type'] == 'Entrée';
     final bonNumber = '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}';
     List<Map<String, dynamic>> caisses = await _getCaissesForBon(bonNumber);
+    final bonCodeController = TextEditingController();
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: Text(
-          'Edit Bon: $bonNumber',
-          style: const TextStyle(color: Colors.black),
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: ChoiceChip(
-                        label: const Text('Entrée'),
-                        selected: isEntry,
-                        onSelected: (selected) {
-                          setState(() {
-                            isEntry = selected;
-                            typeController.text = selected ? 'Entrée' : 'Sortie';
-                          });
-                        },
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              title: Text('Modifier Bon: $bonNumber'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ChoiceChip(
-                        label: const Text('Sortie'),
-                        selected: !isEntry,
-                        onSelected: (selected) {
-                          setState(() {
-                            isEntry = !selected;
-                            typeController.text = selected ? 'Entrée' : 'Sortie';
-                          });
-                        },
+
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Caisses Associées',
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Associated Caisses',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 200,
-                  child: DataTable2(
-                    columnSpacing: 12,
-                    horizontalMargin: 12,
-                    minWidth: 300,
-                    columns: const [
-                      DataColumn2(label: Text('Colonne')),
-                      DataColumn2(label: Text('Caisse')),
-                      DataColumn2(label: Text('Actions')),
-                    ],
-                    rows: caisses.map((caisse) {
-                      return DataRow(cells: [
-                        DataCell(Text(caisse['colonne'].toString())),
-                        DataCell(Text(caisse['caisse'].toString())),
-                        DataCell(Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit, color: Colors.blue),
-                              onPressed: () => _editCaisse(caisse, bon),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteCaisseFromBon(caisse, bon),
-                            ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 200,
+                        child: caisses.isEmpty
+                            ? const Center(child: Text('Aucune caisse associée'))
+                            : DataTable2(
+                          columnSpacing: 12,
+                          horizontalMargin: 12,
+                          minWidth: 300,
+                          columns: const [
+                            DataColumn2(label: Text('Colonne')),
+                            DataColumn2(label: Text('Caisse')),
+                            DataColumn2(label: Text('Actions')),
                           ],
-                        )),
-                      ]);
-                    }).toList(),
+                          rows: caisses.map((caisse) {
+                            return DataRow(cells: [
+                              DataCell(Text(caisse['colonne']?.toString() ?? 'N/A')),
+                              DataCell(Text(caisse['caisse']?.toString() ?? '')),
+                              DataCell(Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.blue),
+                                    onPressed: () async {
+                                      await _editCaisse(caisse, bon);
+                                      final updatedCaisses = await _getCaissesForBon(bonNumber);
+                                      setDialogState(() {
+                                        caisses = updatedCaisses;
+                                      });
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red),
+                                    onPressed: () async {
+                                      await _deleteCaisseFromBon(caisse, bon);
+                                      final updatedCaisses = await _getCaissesForBon(bonNumber);
+                                      setDialogState(() {
+                                        caisses = updatedCaisses;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              )),
+                            ]);
+                          }).toList(),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      final bons = await widget.database.getBonsByNumber(bon['bon_number'], bon['bon_year']);
+                      for (var b in bons) {
+                        await widget.database.updateBon(
+                          b['id'],
+                          typeController.text,
+                          b['code'],
+                          b['bon_number'],
+                          b['bon_year'],
+                        );
+                      }
+                      await _loadBons();
+                      if (context.mounted) Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bon modifié avec succès')),
+                      );
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erreur lors de la modification: $e')),
+                        );
+                      }
+                      print('Error updating bon: $e');
+                    }
+                  },
+                  child: const Text('Sauvegarder', style: TextStyle(color: Colors.blue)),
+                ),
               ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
-          ),
-          TextButton(
-            onPressed: () async {
-              try {
-                await widget.database.updateBon(
-                  bon['id'],
-                  typeController.text,
-                  bon['code'],
-                  bon['bon_number'],
-                  bon['bon_year'],
-                );
-                await _loadBons();
-                if (context.mounted) Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Bon updated successfully')),
-                );
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Edit failed: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Save', style: TextStyle(color: Colors.blue)),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
   Future<void> _editCaisse(Map<String, dynamic> caisse, Map<String, dynamic> bon) async {
-    final colonneController = TextEditingController(text: caisse['colonne'].toString());
-    final caisseController = TextEditingController(text: caisse['caisse'].toString());
+    final colonneController = TextEditingController(text: caisse['colonne']?.toString() ?? 'N/A');
+    final caisseController = TextEditingController(text: caisse['caisse']?.toString());
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Text('Edit Caisse', style: TextStyle(color: Colors.black)),
+        title: const Text('Modifier Caisse'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: colonneController,
-              decoration: const InputDecoration(
-                labelText: 'Colonne',
-                labelStyle: TextStyle(color: Colors.black),
-              ),
-              style: const TextStyle(color: Colors.black),
+            enableInteractiveSelection: false,
+              decoration: const InputDecoration(labelText: 'Colonne'),
+              enabled: caisse['id'] != null, // Disable if no archive entry
             ),
             TextField(
+              enableInteractiveSelection: false,
               controller: caisseController,
-              decoration: const InputDecoration(
-                labelText: 'Caisse',
-                labelStyle: TextStyle(color: Colors.black),
-              ),
-              style: const TextStyle(color: Colors.black),
+              decoration: const InputDecoration(labelText: 'Caisse'),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
+            child: const Text('Annuler'),
           ),
           TextButton(
             onPressed: () async {
               try {
-                await widget.database.updateArchive(
-                  caisse['id'],
-                  colonneController.text,
-                  caisseController.text,
-                );
-                if (caisseController.text != caisse['caisse']) {
-                  await widget.database.updateBon(
-                    bon['id'],
-                    bon['type'],
+// Update archive only if it exists
+                if (caisse['id'] != null) {
+                  await widget.database.updateArchive(
+                    caisse['id'],
+                    colonneController.text,
                     caisseController.text,
-                    bon['bon_number'],
-                    bon['bon_year'],
                   );
                 }
+// Update bon code if caisse code changed
+                if (caisseController.text != caisse['caisse']) {
+                  final bons = await widget.database.getBonsByNumber(bon['bon_number'], bon['bon_year']);
+                  for (var b in bons) {
+                    if (b['code'] == caisse['caisse']) {
+                      await widget.database.updateBon(
+                        b['id'],
+                        b['type'],
+                        caisseController.text,
+                        b['bon_number'],
+                        b['bon_year'],
+                      );
+                    }
+                  }
+                }
                 await _loadBons();
-                await _loadArchives();
+                if (caisse['id'] != null) await _loadArchives();
                 if (context.mounted) Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Caisse updated successfully')),
+                  const SnackBar(content: Text('Caisse modifiée avec succès')),
                 );
+                print('Updated caisse ${caisse['caisse']} to ${caisseController.text} for bon ${bon['bon_number']}/${bon['bon_year']}');
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Edit failed: $e')),
+                    SnackBar(content: Text('Erreur lors de la modification: $e')),
                   );
                 }
+                print('Error editing caisse: $e');
               }
             },
-            child: const Text('Save', style: TextStyle(color: Colors.blue)),
+            child: const Text('Sauvegarder', style: TextStyle(color: Colors.blue)),
           ),
         ],
       ),
@@ -791,44 +731,59 @@ class _MainPageState extends State<MainPage> {
 
   Future<void> _deleteCaisseFromBon(Map<String, dynamic> caisse, Map<String, dynamic> bon) async {
     try {
-      await widget.database.deleteBon(bon['id']);
-      await _loadBons();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Caisse removed from bon')),
-        );
+      final bons = await widget.database.getBonsByNumber(bon['bon_number'], bon['bon_year']);
+      final matchingBon = bons.firstWhere(
+            (b) => b['code'] == caisse['caisse'] && b['type'] == bon['type'],
+        orElse: () => {},
+      );
+
+      if (matchingBon.isNotEmpty) {
+        await widget.database.deleteBon(matchingBon['id']);
+        await _loadBons();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Caisse retirée du bon')),
+          );
+        }
+        print('Deleted caisse ${caisse['caisse']} from bon ${bon['bon_number']}/${bon['bon_year']}');
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e')),
+          SnackBar(content: Text('Erreur lors de la suppression: $e')),
         );
       }
+      print('Error deleting caisse: $e');
     }
   }
 
   Future<void> _deleteBon(Map<String, dynamic> bon) async {
     try {
-      await widget.database.deleteBon(bon['id']);
+      final bons = await widget.database.getBonsByNumber(bon['bon_number'], bon['bon_year']);
+      for (var b in bons) {
+        await widget.database.deleteBon(b['id']);
+      }
       await _loadBons();
       if (context.mounted) {
         setState(() {
-          if (_currentBonNumber == '${bon['type'] == 'Entrée' ? 'BET' : 'BST'}${bon['bon_number']}/${bon['bon_year']}') {
+          if (_selectedBonId == bon['id'].toString()) {
             _currentBonNumber = null;
-            _selectedBonNumber = null;
+            _selectedBonId = null;
             ajoutBonActif = false;
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bon deleted successfully')),
+          const SnackBar(content: Text('Bon supprimé avec succès')),
         );
       }
+      print('Deleted bon ${bon['bon_number']}/${bon['bon_year']}');
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e')),
+          SnackBar(content: Text('Erreur lors de la suppression: $e')),
         );
       }
+      print('Error deleting bon: $e');
     }
   }
 
@@ -851,11 +806,19 @@ class _MainPageState extends State<MainPage> {
       );
     }
 
+    final uniqueBons = <String, Map<String, dynamic>>{};
+    for (var bon in _bons) {
+      final key = '${bon['type']}${bon['bon_number']}/${bon['bon_year']}';
+      if (!uniqueBons.containsKey(key)) {
+        uniqueBons[key] = bon;
+      }
+    }
+
     final startIndex = _bonsCurrentPage * _rowsPerPage;
     final endIndex = (_bonsCurrentPage + 1) * _rowsPerPage;
-    final paginatedBons = _bons.sublist(
+    final paginatedBons = uniqueBons.values.toList().sublist(
       startIndex,
-      endIndex > _bons.length ? _bons.length : endIndex,
+      endIndex > uniqueBons.length ? uniqueBons.length : endIndex,
     );
 
     return Column(
@@ -869,7 +832,6 @@ class _MainPageState extends State<MainPage> {
             columns: [
               const DataColumn2(label: Text('Type')),
               const DataColumn2(label: Text('Numéro Bon')),
-              const DataColumn2(label: Text('Code')),
               const DataColumn2(label: Text('Date')),
               if (widget.role == "admin") const DataColumn2(label: Text('Actions')),
             ],
@@ -887,7 +849,6 @@ class _MainPageState extends State<MainPage> {
                   ],
                 )),
                 DataCell(Text(bonNumber)),
-                DataCell(Text(bon['code'])),
                 DataCell(Text(
                   DateFormat('dd/MM HH:mm').format(DateTime.parse(bon['bon_date'])),
                 )),
@@ -920,7 +881,7 @@ class _MainPageState extends State<MainPage> {
             ),
             Text('Page ${_bonsCurrentPage + 1}'),
             IconButton(
-              onPressed: endIndex < _bons.length
+              onPressed: endIndex < uniqueBons.length
                   ? () => setState(() => _bonsCurrentPage++)
                   : null,
               icon: const Icon(Icons.chevron_right),
@@ -974,10 +935,7 @@ class _MainPageState extends State<MainPage> {
         isLoading
             ? const CircularProgressIndicator()
             : filteredArchives.isEmpty
-            ? const Text(
-          'Pas d\'archives',
-          style: TextStyle(color: Colors.black),
-        )
+            ? const Text('Pas d\'archives')
             : _buildArchivesDataTable(filteredArchives),
       ],
     );
@@ -1006,8 +964,8 @@ class _MainPageState extends State<MainPage> {
             ],
             rows: paginatedArchives.map((archive) {
               return DataRow(cells: [
-                DataCell(Text(archive['colonne'].toString())),
-                DataCell(Text(archive['caisse'].toString())),
+                DataCell(Text(archive['colonne']?.toString() ?? '')),
+                DataCell(Text(archive['caisse']?.toString() ?? '')),
                 if (widget.role == "admin")
                   DataCell(Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1049,46 +1007,33 @@ class _MainPageState extends State<MainPage> {
   }
 
   Future<void> _editArchive(Map<String, dynamic> archive) async {
-    final colonneController = TextEditingController(
-      text: archive['colonne']?.toString(),
-    );
-    final caisseController = TextEditingController(
-      text: archive['caisse']?.toString(),
-    );
+    final colonneController = TextEditingController(text: archive['colonne']?.toString());
+    final caisseController = TextEditingController(text: archive['caisse']?.toString());
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Text(
-          'Edit Archive',
-          style: TextStyle(color: Colors.black),
-        ),
+        title: const Text('Modifier Archive'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: colonneController,
-              decoration: const InputDecoration(
-                labelText: 'Colonne',
-                labelStyle: TextStyle(color: Colors.black),
-              ),
-              style: const TextStyle(color: Colors.black),
+              decoration: const InputDecoration(labelText: 'Colonne'),
+              enableInteractiveSelection: false, // Allows pasting and selection
             ),
             TextField(
               controller: caisseController,
-              decoration: const InputDecoration(
-                labelText: 'Caisse',
-                labelStyle: TextStyle(color: Colors.black),
-              ),
-              style: const TextStyle(color: Colors.black),
+              decoration: const InputDecoration(labelText: 'Caisse'),
+                enableInteractiveSelection: false
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
+            child: const Text('Annuler'),
           ),
           TextButton(
             onPressed: () async {
@@ -1102,11 +1047,11 @@ class _MainPageState extends State<MainPage> {
                 if (context.mounted) Navigator.pop(context);
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Edit failed: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de la modification: $e')));
                 }
               }
             },
-            child: const Text('Save', style: TextStyle(color: Colors.blue)),
+            child: const Text('Sauvegarder', style: TextStyle(color: Colors.blue)),
           ),
         ],
       ),
@@ -1118,11 +1063,11 @@ class _MainPageState extends State<MainPage> {
       await widget.database.deleteArchive(archive['id']);
       await _loadArchives();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archive deleted')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archive supprimée')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de la suppression: $e')));
       }
     }
   }
@@ -1136,11 +1081,7 @@ class _MainPageState extends State<MainPage> {
           children: [
             const Text(
               'Ajouter Archive',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
             _buildScanField(
@@ -1157,19 +1098,11 @@ class _MainPageState extends State<MainPage> {
             const SizedBox(height: 24),
             const Text(
               'Archives:',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             if (archives.isEmpty)
-              const Center(
-                child: Text(
-                  'Pas d\'archives',
-                  style: TextStyle(color: Colors.black),
-                ),
-              )
+              const Center(child: Text('Pas d\'archives'))
             else
               _buildArchivesDataTable(archives),
           ],
@@ -1191,12 +1124,14 @@ class _MainPageState extends State<MainPage> {
               child: TextField(
                 readOnly: false,
                 controller: controller,
-                keyboardType: TextInputType.none, // Prevent on-screen keyboard
-                enableInteractiveSelection: true, // Allow pasting
+                keyboardType: TextInputType.text,
+                enableInteractiveSelection: false,
                 autofocus: true,
                 decoration: InputDecoration(
                   prefixIcon: label == "Colonne" ? const Icon(Icons.view_column) : const Icon(Icons.folder),
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   labelText: label,
                   hintText: 'Enter $label',
                 ),
@@ -1206,7 +1141,7 @@ class _MainPageState extends State<MainPage> {
                       scannedColonne = text;
                     } else if (label == 'Caisse') {
                       scannedCaisse = text;
-                      onScan!();
+                      if (onScan != null) onScan();
                     }
                   });
                 },
@@ -1255,7 +1190,7 @@ class _MainPageState extends State<MainPage> {
         });
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Archive added successfully!')),
+            const SnackBar(content: Text('Archive ajoutée avec succès!')),
           );
         }
       } else {
@@ -1270,7 +1205,7 @@ class _MainPageState extends State<MainPage> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de l\'ajout: $e')));
       }
     }
   }
@@ -1284,7 +1219,7 @@ class _MainPageState extends State<MainPage> {
       case 2:
         return _localisationPage();
       default:
-        return const Center(child: Text('Page not found'));
+        return const Center(child: Text('Page non trouvée'));
     }
   }
 
@@ -1323,7 +1258,7 @@ class _MainPageState extends State<MainPage> {
         BottomNavigationBarItem(
           backgroundColor: Colors.blue,
           icon: Icon(Icons.logout),
-          label: 'Logout',
+          label: 'Déconnexion',
         ),
       ],
     );
@@ -1346,7 +1281,7 @@ class _MainPageState extends State<MainPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.role, style: const TextStyle(color: Colors.black)),
+              Text(widget.role),
               Text(
                 widget.username,
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
@@ -1382,7 +1317,7 @@ class _MainPageState extends State<MainPage> {
           _buildNavItem(Icons.inventory, 'Bons d\'Entrée/Sortie', 1),
           _buildNavItem(Icons.location_on, 'Localisation', 2),
           const Divider(),
-          _buildNavItem(Icons.logout, 'Logout', 3),
+          _buildNavItem(Icons.logout, 'Déconnexion', 3),
         ],
       ),
     );
@@ -1390,8 +1325,8 @@ class _MainPageState extends State<MainPage> {
 
   Widget _buildNavItem(IconData icon, String title, int index) {
     return ListTile(
-      leading: Icon(icon, color: Colors.black),
-      title: Text(title, style: const TextStyle(color: Colors.black)),
+      leading: Icon(icon),
+      title: Text(title),
       selected: selectedIndex == index,
       onTap: () {
         if (index == 3) {
@@ -1459,7 +1394,7 @@ class _MainPageState extends State<MainPage> {
             const SizedBox(height: 8),
             Text(
               title,
-              style: const TextStyle(fontSize: 14, color: Colors.black),
+              style: const TextStyle(fontSize: 14),
             ),
             Text(
               value,
@@ -1484,11 +1419,7 @@ class _MainPageState extends State<MainPage> {
               : selectedIndex == 1
               ? 'Bons'
               : 'Localisation',
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const Spacer(),
         if (selectedIndex == 0)
@@ -1496,6 +1427,7 @@ class _MainPageState extends State<MainPage> {
             width: isWide ? 300 : MediaQuery.of(context).size.width * 0.5,
             child: TextField(
               controller: _searchController,
+
               decoration: InputDecoration(
                 hintText: 'Recherche...',
                 prefixIcon: const Icon(Icons.search, color: Colors.grey),
@@ -1584,7 +1516,7 @@ class _MainPageState extends State<MainPage> {
           children: [
             Image.asset(companyLogo, height: 40),
             const SizedBox(width: 10),
-            const Text('ARCHIDOC', style: TextStyle(color: Colors.black)),
+            const Text('ARCHIDOC'),
           ],
         ),
         actions: [_buildUserProfile()],
